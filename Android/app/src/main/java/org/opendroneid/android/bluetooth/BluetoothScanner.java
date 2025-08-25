@@ -80,7 +80,7 @@ public class BluetoothScanner {
                     addr, advertiseFlags, rssi, bytes != null ? bytes.length : -1);
 
             String transportType = "BT4";
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bluetoothAdapter.isLeCodedPhySupported()) {
+            if (bluetoothAdapter.isLeCodedPhySupported()) {
                 if (result.getPrimaryPhy() == BluetoothDevice.PHY_LE_CODED)
                     transportType = "BT5";
             }
@@ -120,7 +120,6 @@ public class BluetoothScanner {
     private static final ParcelUuid SERVICE_pUUID = new ParcelUuid(SERVICE_UUID);
     private static final byte[] OPEN_DRONE_ID_AD_CODE = new byte[]{(byte) 0x0D};
 
-    @TargetApi(Build.VERSION_CODES.O)
     public void startScan() {
         if (bluetoothAdapter == null)
             return;
@@ -136,8 +135,7 @@ public class BluetoothScanner {
         ScanSettings scanSettings = new ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                bluetoothAdapter.isLeCodedPhySupported() &&
+        if (bluetoothAdapter.isLeCodedPhySupported() &&
                 bluetoothAdapter.isLeExtendedAdvertisingSupported()) {
             Log.d(TAG, "startScan: Enable scanning also for devices advertising on an LE Coded PHY S2 or S8");
             scanSettings = new ScanSettings.Builder()

@@ -10,6 +10,7 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.text.HtmlCompat;
 import androidx.fragment.app.DialogFragment;
 
 import org.opendroneid.android.R;
@@ -26,16 +27,16 @@ public class HelpMenu extends DialogFragment {
 
         TextView helpView = view.findViewById(R.id.bluetoothHelpText);
         String linkText = getString(R.string.bluetoothHelp);
-        helpView.setText(Html.fromHtml(linkText));
+        helpView.setText(HtmlCompat.fromHtml(linkText, HtmlCompat.FROM_HTML_MODE_LEGACY));
 
         helpView = view.findViewById(R.id.beaconHelpText);
         linkText = getString(R.string.beaconHelp);
-        helpView.setText(Html.fromHtml(linkText));
+        helpView.setText(HtmlCompat.fromHtml(linkText, HtmlCompat.FROM_HTML_MODE_LEGACY));
         helpView.setMovementMethod(LinkMovementMethod.getInstance());
 
         helpView = view.findViewById(R.id.nanHelpText);
         linkText = getString(R.string.nanHelp);
-        helpView.setText(Html.fromHtml(linkText));
+        helpView.setText(HtmlCompat.fromHtml(linkText, HtmlCompat.FROM_HTML_MODE_LEGACY));
         return view;
     }
 }

@@ -1,0 +1,172 @@
+package org.opendroneid.android.app;
+
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
+import android.content.Intent;
+import android.content.pm.ServiceInfo;
+import android.os.IBinder;
+import android.util.Log;
+
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.ServiceCompat;
+
+import org.opendroneid.android.R;
+import org.opendroneid.android.bluetooth.BluetoothScanner;
+import org.opendroneid.android.bluetooth.OpenDroneIdDataManager;
+import org.opendroneid.android.bluetooth.WiFiScanner;
+import org.opendroneid.android.log.LogWriter;
+
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+import java.util.Locale;
+
+/* This foreground Service required to receive Bluetooth and Wifi
+   updates when the app is backgrounded/paused.
+ */
+
+public class ScanningService extends Service {
+    private static final String TAG = "ScanningService";
+    private static final String CHANNEL_ID = "OpenDroneIdScanner";
+    private static final String CHANNEL_NAME = "OpenDroneId Scanner Service";
+    private static final int NOTIFICATION_ID = 1;
+    private BluetoothScanner btScanner;
+    private WiFiScanner wiFiScanner;
+    private boolean scanning = false;
+
+    private DebugActivity mAppActivity;
+    private OpenDroneIdDataManager mDataManager;
+
+    public void startScanning() {
+        if (scanning) {
+            Log.d(TAG, String.format(Locale.US, "startScanning(): ignoring start request while running."));
+            return;
+        }
+        scanning = true;
+        LogWriter logger = mAppActivity.getLogger();
+        Log.d(TAG, String.format(Locale.US, "startScanning(): ScanningService 0x%x", this.hashCode()));
+        wiFiScanner = new WiFiScanner(getApplicationContext(), mDataManager, logger);
+        wiFiScanner.startScan();
+
+        btScanner = new BluetoothScanner(getApplicationContext(), mDataManager);
+        btScanner.setLogger(logger);
+        btScanner.startScan();
+    }
+
+    public void stopScanning() {
+        if (!scanning) {
+            Log.d(TAG, String.format(Locale.US, "stopScanning(): Ignoring request to stop when idle"));
+            return;
+        }
+        Log.d(TAG, String.format(Locale.US, "stopScanning(): ScanningService 0x%x", this.hashCode()));
+        wiFiScanner.stopScan();
+        btScanner.stopScan();
+        mDataManager = null;
+        scanning = false;
+    }
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        Log.d(TAG, String.format(Locale.US, "onCreate(): Starting ScanningService 0x%x", this.hashCode()));
+
+        mAppActivity = DebugActivity.getDebugActivity();
+
+        if (null == mAppActivity) {
+            Log.e(TAG, "onCreate() with null DebugActivity.");
+            return;
+        }
+        mDataManager = mAppActivity.getDataManager();
+        if (null == mDataManager) {
+            Log.e(TAG, "onCreate() with null DataManager.");
+        }
+        Log.d(TAG, String.format(Locale.US, "onCreate(): appActivity:0x%x dataManager: 0x%x",
+                mAppActivity.hashCode(), mDataManager.hashCode()));
+
+        NotificationChannel serviceChannel = new NotificationChannel(CHANNEL_ID,
+                CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT);
+        NotificationManager notManager = getSystemService(NotificationManager.class);
+        notManager.createNotificationChannel(serviceChannel);
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+
+    @Override
+    public void onDestroy() {
+        Log.d(TAG, String.format(Locale.US, "onDestroy(): ScanningService 0x%x", this.hashCode()));
+        stopScanning();
+        super.onDestroy();
+    }
+
+    @Override
+    public void onLowMemory() {
+        super.onLowMemory();
+    }
+
+    @Override
+    public
+    void onRebind(Intent intent) {
+        super.onRebind(intent);
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        Log.d(TAG, String.format(Locale.US, "onStartCommand(): mAppActivity 0x%x", mAppActivity.hashCode()));
+
+
+        /* FIXME: No matter what I've tried here, Android will fire up a new instance of the
+            DebugActivity class - rather than just bring the existing instance to the front.
+            As a result, DebugActivity.onCreate() checks the instance id to see if it is the
+            original, and if it isn't it just exits.
+         */
+        intent = new Intent(mAppActivity, DebugActivity.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT |
+                Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent pendingIntent = PendingIntent.getActivity(mAppActivity, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        Notification notification = new NotificationCompat.Builder(mAppActivity, CHANNEL_ID)
+                .setContentTitle("OpenDroneID Scanning Service")
+                .setContentText("Scanning for remoteID broadcasts on Bluetooth and Wireless interfaces")
+                .setSmallIcon(R.drawable.rid_scanner)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(false)
+                .build();
+
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+        startScanning();
+        return START_STICKY;
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        Log.i(TAG, "onTaskRemoved()");
+        super.onTaskRemoved(rootIntent);
+    }
+    @Override
+    public void onTimeout(int startId, int fgsType) {
+        Log.i(TAG, "onTimeout()");
+        super.onTimeout(startId, fgsType);
+    }
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+    }
+
+    @Override
+    public boolean onUnbind(Intent intent) {
+        return super.onUnbind(intent);
+    }
+
+    @Override
+    protected void dump(FileDescriptor fd, PrintWriter writer, String[] args) {
+        super.dump(fd, writer, args);
+    }
+}

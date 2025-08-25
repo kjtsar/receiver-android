@@ -11,6 +11,8 @@ import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProvider;
 
 import android.content.res.Resources;
+import android.graphics.BlendMode;
+import android.graphics.BlendModeColorFilter;
 import android.graphics.Color;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
@@ -87,15 +89,6 @@ public class DeviceList extends Fragment {
     }
 
     @Override
-    public void onActivityCreated(@Nullable Bundle savedInstanceState) {
-        if (getActivity() == null)
-            return;
-        super.onActivityCreated(savedInstanceState);
-        AircraftViewModel model = new ViewModelProvider(getActivity()).get(AircraftViewModel.class);
-        subscribeToModel(model);
-    }
-
-    @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
         ViewGroup viewGroup = (ViewGroup) inflater.inflate(R.layout.aircraft_list, container, false);
         // Set CustomAdapter as the adapter for RecyclerView.
@@ -121,6 +114,8 @@ public class DeviceList extends Fragment {
         mRecyclerView.setLayoutManager(new LinearLayoutManager(getContext()));
         mRecyclerView.setAdapter(mAdapter);
         mRecyclerView.scrollToPosition(0);
+        AircraftViewModel model = new ViewModelProvider(getActivity()).get(AircraftViewModel.class);
+        subscribeToModel(model);
 
         return viewGroup;
     }
@@ -234,7 +229,7 @@ public class DeviceList extends Fragment {
                     setIdText(identification);
 
                     assert droneIcon != null;
-                    droneIcon.setColorFilter(0xff00ff00, PorterDuff.Mode.MULTIPLY);
+                    droneIcon.setColorFilter(new BlendModeColorFilter(0xff00ff00, BlendMode.MULTIPLY));
                     iconImageView.setImageDrawable(droneIcon);
                 }
             }

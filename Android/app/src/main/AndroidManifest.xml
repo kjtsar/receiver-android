@@ -14,9 +14,13 @@
 	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"  />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
 
-    <uses-feature android:name="android.hardware.bluetooth" />
+    <uses-feature android:name="android.hardware.bluetooth"  android:required="true" />
+    <uses-feature android:name="android.hardware.bluetooth_le" />
     <uses-feature android:name="android.hardware.wifi" />
+    <uses-feature android:name="android.hardware.wifi.aware" />
 
     <application
         android:allowBackup="true"
@@ -47,6 +51,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service android:name=".app.ScanningService"
+            android:foregroundServiceType="connectedDevice"
+            android:enabled="true"
+            android:exported="false">
+        </service>
 
         <meta-data
             android:name="com.google.android.geo.API_KEY"

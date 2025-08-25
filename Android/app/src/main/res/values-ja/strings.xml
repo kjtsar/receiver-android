@@ -20,6 +20,14 @@
     <string name="Help">ヘルプ</string>
     <string name="Log_enabled">Log有効</string>
     <string name="Show_log_location">位置情報ログ閲覧</string>
+    <string name="Caltopo">Caltopo</string>
+    <string name="Caltopo_Configuration">Caltopo Configuration</string>
+    <string name="ct_groupid">Group Id</string>
+    <string name="ct_groupidVal"></string>
+    <string name="ct_minChgFt">Min Chg In Feet:</string>
+    <string name="ct_minChgFtVal">10</string>
+    <string name="ct_remoteid">Remote Id:</string>
+    <string name="ct_deviceid">Device Id:</string>
 
     <string name="coded_phy_not_supported">Coded Phy非対応</string>
     <string name="coded_phy_supported">Coded Phy対応</string>
@@ -124,5 +132,9 @@
         もう一度戻り【システム＞＞開発者オプション】メニューを見つけ【Wi-Fi スキャン スロットリング】までスクロールして、これを無効にします。&lt;br&gt;</string>
     <string name="nanHelp">Wi-Fi Neighbor-aware Network リモートID信号の受信は、Wi-Fi NaNをサポートしている端末のみ可能です。&lt;br&gt;&lt;br&gt;
         オプションメニューのこれらの機能については、このデバイスに関するサポート仕様をご参照ください。&lt;br&gt;</string>
+    <string name="ct_SaveButton">SAVE</string>
+    <string name="ct_closeButton">Close</string>
+    <string name="ct_archiveDirDesc">Archive Path:</string>
+    <string name="ct_archivePath">archive path</string>
 
 </resources>

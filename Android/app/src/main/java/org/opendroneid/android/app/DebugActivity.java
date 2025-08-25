@@ -7,16 +7,18 @@
 package org.opendroneid.android.app;
 
 import android.Manifest;
+
+import androidx.documentfile.provider.DocumentFile;
 import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProvider;
 
-import android.annotation.TargetApi;
 import android.bluetooth.BluetoothAdapter;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.location.Location;
+import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -30,7 +32,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.Settings;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -47,14 +48,12 @@ import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.Priority;
 import com.google.android.material.snackbar.Snackbar;
 
-import org.opendroneid.android.BuildConfig;
 import org.opendroneid.android.Constants;
 import org.opendroneid.android.PermissionUtils;
 import org.opendroneid.android.R;
+import org.opendroneid.android.data.CaltopoClient;
+import org.opendroneid.android.data.WaypointTrack;
 import org.opendroneid.android.log.LogWriter;
-import org.opendroneid.android.bluetooth.BluetoothScanner;
-import org.opendroneid.android.bluetooth.WiFiNaNScanner;
-import org.opendroneid.android.bluetooth.WiFiBeaconScanner;
 import org.opendroneid.android.bluetooth.OpenDroneIdDataManager;
 import org.opendroneid.android.data.AircraftObject;
 
@@ -66,9 +65,6 @@ import java.util.Locale;
 import java.util.Set;
 
 public class DebugActivity extends AppCompatActivity {
-    BluetoothScanner btScanner;
-    WiFiNaNScanner wiFiNaNScanner;
-    WiFiBeaconScanner wiFiBeaconScanner;
 
     private AircraftViewModel mModel;
     OpenDroneIdDataManager dataManager;
@@ -83,13 +79,18 @@ public class DebugActivity extends AppCompatActivity {
     public static final String SHARED_PREF_ENABLE_LOG = "EnableLog";
     private MenuItem mMenuLogItem;
 
-    private AircraftMapView mMapView;
+//    private AircraftMapView mMapView;
 
     private File loggerFile;
     private LogWriter logger;
 
     private Handler handler;
     private Runnable runnableCode;
+    public OpenDroneIdDataManager getDataManager() {return dataManager;}
+    public LogWriter getLogger() {return logger;}
+    private static DebugActivity appActivity = null;
+    public static DebugActivity getDebugActivity() {return appActivity;}
+    public static Context getAppContext() {return appActivity.getApplicationContext();}
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
@@ -108,39 +109,40 @@ public class DebugActivity extends AppCompatActivity {
         return true;
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
     private void checkBluetoothSupport(Menu menu) {
         Object object = getSystemService(BLUETOOTH_SERVICE);
         if (object == null)
             return;
         BluetoothAdapter bluetoothAdapter = ((android.bluetooth.BluetoothManager) object).getAdapter();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bluetoothAdapter.isLeCodedPhySupported()) {
+        if (bluetoothAdapter.isLeCodedPhySupported()) {
             menu.findItem(R.id.coded_phy).setTitle(getString(R.string.coded_phy_supported));
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bluetoothAdapter.isLeExtendedAdvertisingSupported()) {
+        if (bluetoothAdapter.isLeExtendedAdvertisingSupported()) {
             menu.findItem(R.id.extended_advertising).setTitle(getString(R.string.ea_supported));
         }
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
     private void checkNaNSupport(Menu menu) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI_AWARE)) {
+        if (getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI_AWARE)) {
             menu.findItem(R.id.wifi_nan).setTitle(getString(R.string.nan_supported));
         }
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     private void checkWiFiSupport(Menu menu) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            menu.findItem(R.id.wifi_beacon_scan).setTitle(getString(R.string.wifi_beacon_scan_supported));
-        }
+        menu.findItem(R.id.wifi_beacon_scan).setTitle(getString(R.string.wifi_beacon_scan_supported));
     }
 
     private void showHelpMenu() {
         HelpMenu helpMenu = HelpMenu.newInstance();
         FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
         helpMenu.show(transaction, getString(R.string.Help));
+    }
+
+    private void showCaltopoConfigPanel() {
+        CaltopoSettings configPanel = CaltopoSettings.newInstance();
+        FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
+        configPanel.show(transaction, "CaltopoSettings");
     }
 
     @Override
@@ -160,18 +162,9 @@ public class DebugActivity extends AppCompatActivity {
             mMenuLogItem.setChecked(enabled);
             if (enabled) {
                 createNewLogfile();
-                if (wiFiNaNScanner != null)
-                    wiFiNaNScanner.setLogger(logger);
-                if (wiFiBeaconScanner != null)
-                    wiFiBeaconScanner.setLogger(logger);
             } else {
                 if (logger != null)
                     logger.close();
-                btScanner.setLogger(null);
-                if (wiFiNaNScanner != null)
-                    wiFiNaNScanner.setLogger(null);
-                if (wiFiBeaconScanner != null)
-                    wiFiBeaconScanner.setLogger(null);
             }
             return true;
         } else if (id == R.id.log_location) {
@@ -182,9 +175,13 @@ public class DebugActivity extends AppCompatActivity {
                 message = getString(R.string.Logging_not_activated);
             showToast(message);
             return true;
+        } else if (id == R.id.caltopo) {
+            showCaltopoConfigPanel();
         }
+/*
         if (BuildConfig.USE_GOOGLE_MAPS)
             return mMapView.changeMapType(item);
+ */
         return false;
     }
 
@@ -218,19 +215,26 @@ public class DebugActivity extends AppCompatActivity {
                 return;
             }
         }
-        loggerFile = getLoggerFileDir(btScanner.getBluetoothAdapter().getName());
+        loggerFile = getLoggerFileDir(getName());
 
         try {
             logger = new LogWriter(loggerFile);
         } catch (IOException e) {
-            e.printStackTrace();
+            Log.e(TAG, e.toString());
         }
-        btScanner.setLogger(logger);
+    }
+    public String getName() {
+        return getApplication().getProcessName();
     }
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (appActivity != null) {
+            /* prevent ScanningService's PendingIntent tap from starting a new instance. */
+            finish();
+            return;
+        }
 
         setContentView(R.layout.activity_debug);
         mModel = new ViewModelProvider(this).get(AircraftViewModel.class);
@@ -264,51 +268,42 @@ public class DebugActivity extends AppCompatActivity {
                 return;
             }
         }
+        appActivity = this;
+        Log.d(TAG, String.format(Locale.US, "onCreate(): Starting ScanningService from activity 0x%x", this.hashCode()));
+        Intent serviceIntent = new Intent(this , ScanningService.class);
+        getApplicationContext().startForegroundService(serviceIntent);
+        CaltopoClient.initializeForActivityAndContext(this, getApplicationContext());
 
         finalizeOnCreate();
     }
 
     private void finalizeOnCreate() {
         Log.d(TAG, "finalizeOnCreate");
-        btScanner = new BluetoothScanner(this, dataManager);
+        String archivePathVal = CaltopoClient.getArchivePath();
+        if (null == archivePathVal) {
+            CaltopoClient.queryUserForArchiveDir();
+        }
         createNewLogfile();
+        initialize();
+    }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI_AWARE)) {
-            WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-            if (!wifiManager.isWifiEnabled()) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    Intent panelIntent = new Intent(Settings.Panel.ACTION_WIFI);
-                    startActivityForResult(panelIntent, Constants.REQUEST_ENABLE_WIFI);
-                } else {
-                    wifiManager.setWifiEnabled(true);
-                }
-            }
-        }
+    private void initialize() {
+        Log.d(TAG, "initialize()");
+        mModel.setAllAircraft(dataManager.getAircraft());
 
-        BluetoothAdapter bluetoothAdapter = btScanner.getBluetoothAdapter();
-        if (bluetoothAdapter != null) {
-            // Is Bluetooth turned on?
-            if (!bluetoothAdapter.isEnabled()) {
-                // Prompt user to turn on Bluetooth (logic continues in onActivityResult()).
-                Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-                startActivityForResult(enableBtIntent, Constants.REQUEST_ENABLE_BT);
-            } else {
-                // Check permission
-                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED ||
-                        ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                    Log.d(TAG, "finalizeOnCreate: Requesting FINE_LOCATION_PERMISSION_REQUEST_CODE permission");
-                    requestLocationPermission(Constants.FINE_LOCATION_PERMISSION_REQUEST_CODE);
-                } else {
-                    initialize();
-                }
-            }
-        } else {
-            Log.e(TAG, "finalizeOnCreate: Bluetooth is not supported");
-            showToast(getString(R.string.bt_not_supported));
-            forceStopApp();
-            return;
-        }
+        final Observer<Set<AircraftObject>> listObserver = airCrafts -> {
+            if (airCrafts == null)
+                return;
+            setTitle(String.format(Locale.US, "%d drones", airCrafts.size()));
+        };
+
+        mModel.getAllAircraft().observe(this, listObserver);
+
+        addDeviceList();
+
+        AircraftOsMapView mOsMapView = (AircraftOsMapView) getSupportFragmentManager().findFragmentById(R.id.mapView);
+            if (mOsMapView != null)
+                mOsMapView.setMapSettings();
 
         mFusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         locationRequest = new LocationRequest.Builder(10 * 1000) // 10 seconds
@@ -326,36 +321,6 @@ public class DebugActivity extends AppCompatActivity {
                 }
             }
         };
-    }
-
-    private void initialize() {
-        mModel.setAllAircraft(dataManager.getAircraft());
-
-        final Observer<Set<AircraftObject>> listObserver = airCrafts -> {
-            if (airCrafts == null)
-                return;
-            setTitle(String.format(Locale.US, "%d drones", airCrafts.size()));
-        };
-
-        mModel.getAllAircraft().observe(this, listObserver);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            wiFiNaNScanner = new WiFiNaNScanner(this, dataManager, logger);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-            wiFiBeaconScanner = new WiFiBeaconScanner(this, dataManager, logger);
-
-        addDeviceList();
-
-        if (BuildConfig.USE_GOOGLE_MAPS) {
-            mMapView = (AircraftMapView) getSupportFragmentManager().findFragmentById(R.id.mapView);
-            if (mMapView != null)
-                mMapView.setMapSettings();
-        } else {
-            AircraftOsMapView mOsMapView = (AircraftOsMapView) getSupportFragmentManager().findFragmentById(R.id.mapView);
-            if (mOsMapView != null)
-                mOsMapView.setMapSettings();
-        }
     }
 
     @Override
@@ -395,7 +360,7 @@ public class DebugActivity extends AppCompatActivity {
         Log.d(TAG, "onResume");
 
         // Wake the main Activity thread regularly, to update time counters and other UI elements
-        handler = new Handler();
+        handler = new Handler(Looper.getMainLooper());
         runnableCode = () -> {
             for (AircraftObject aircraft : dataManager.aircraft.values()) {
                 aircraft.updateShadowBasicId();
@@ -410,14 +375,7 @@ public class DebugActivity extends AppCompatActivity {
             if (mFusedLocationClient != null)
                 mFusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper());
 
-            if (btScanner != null)
-                btScanner.startScan();
         }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && wiFiNaNScanner != null)
-            wiFiNaNScanner.startScan();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && wiFiBeaconScanner != null)
-            wiFiBeaconScanner.startCountDownTimer();
 
         super.onResume();
     }
@@ -426,19 +384,26 @@ public class DebugActivity extends AppCompatActivity {
     protected void onPause() {
         Log.d(TAG, "onPause");
 
-        if (btScanner != null)
-            btScanner.stopScan();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && wiFiNaNScanner != null)
-            wiFiNaNScanner.stopScan();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && wiFiBeaconScanner != null)
-            wiFiBeaconScanner.stopScan();
-
         handler.removeCallbacks(runnableCode);
         if (mFusedLocationClient != null)
             mFusedLocationClient.removeLocationUpdates(locationCallback);
+        Log.i(TAG, "onPause() archiving tracks...");
+        archiveTracks();
         super.onPause();
     }
 
+    public void archiveTracks() {
+        String archivePath = CaltopoClient.getArchivePath();
+        if (null != archivePath) try {
+            Uri treeUri = Uri.parse(archivePath);
+            DocumentFile archiveDir = DocumentFile.fromTreeUri(this, treeUri);
+            if (null != archiveDir) {
+                WaypointTrack.ArchiveTracks(this, archiveDir);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, String.format(Locale.US, "archiveTracks(%s) raised:\n  %s", archivePath, e));
+        }
+    }
     public void requestLocationPermission(int requestCode) {
         Log.d(TAG, "requestLocationPermission: request permission");
 
@@ -451,6 +416,7 @@ public class DebugActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
                                            @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        Log.d(TAG, "onRequestPermissionsResult()");
         if (requestCode == Constants.FINE_LOCATION_PERMISSION_REQUEST_CODE) {
             Log.d(TAG, "onRequestPermissionsResult: back from request FINE_LOCATION");
             if (PermissionUtils.isPermissionGranted(permissions, grantResults,
@@ -528,10 +494,23 @@ public class DebugActivity extends AppCompatActivity {
         else {
             Snackbar snackbar = Snackbar.make(findViewById(android.R.id.content).getRootView(), message, Snackbar.LENGTH_LONG);
             View snackView = snackbar.getView();
-            TextView snackTextView = (TextView) snackView.findViewById(com.google.android.material.R.id.snackbar_text);
+            TextView snackTextView = snackView.findViewById(com.google.android.material.R.id.snackbar_text);
             snackTextView.setMaxLines(5);
             snackbar.show();
         }
+    }
+
+    @Override
+    public void onDestroy() {
+        if (this == appActivity) {
+            Log.i(TAG, "onDestroy() shutting down scanning service...");
+            Intent serviceIntent = new Intent(this, ScanningService.class);
+            stopService(serviceIntent);
+            Log.i(TAG, "onDestroy() archiving tracks...");
+            archiveTracks();
+            appActivity = null;
+        }
+        super.onDestroy();
     }
 
     void forceStopApp() {
