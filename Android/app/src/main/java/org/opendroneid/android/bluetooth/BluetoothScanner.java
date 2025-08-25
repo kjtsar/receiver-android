@@ -33,7 +33,7 @@ import java.util.Locale;
 import java.util.UUID;
 
 public class BluetoothScanner {
-    private static final String TAG = "BluetoothManager";
+    private static final String TAG = "BluetoothScanner";
 
     private final OpenDroneIdDataManager dataManager;
     private LogWriter logger;
@@ -162,6 +162,7 @@ public class BluetoothScanner {
                     return;
                 }
             }
+            Log.i(TAG, "Calling bluetoothLeScanner.stopScan().");
             bluetoothLeScanner.stopScan(scanCallback);
         } else {
             Log.d(TAG, "stopScan: Bluetooth not available");

@@ -8,6 +8,7 @@ import android.app.Service;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.IBinder;
+import android.os.Process;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
@@ -101,6 +102,7 @@ public class ScanningService extends Service {
         Log.d(TAG, String.format(Locale.US, "onDestroy(): ScanningService 0x%x", this.hashCode()));
         stopScanning();
         super.onDestroy();
+        Process.killProcess(Process.myPid());
     }
 
     @Override
