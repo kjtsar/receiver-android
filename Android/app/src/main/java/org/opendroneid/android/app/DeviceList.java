@@ -14,7 +14,6 @@ import android.content.res.Resources;
 import android.graphics.BlendMode;
 import android.graphics.BlendModeColorFilter;
 import android.graphics.Color;
-import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.StateListDrawable;
 import android.os.Bundle;
@@ -45,7 +44,6 @@ import com.mikepenz.fastadapter.select.SelectExtension;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.Locale;
@@ -56,10 +54,6 @@ public class DeviceList extends Fragment {
     private AircraftViewModel mModel;
     private ModelAdapter<AircraftObject, ListItem> mItemAdapter;
     private FastAdapter<ListItem> mAdapter;
-
-    public static DeviceList newInstance() {
-        return new DeviceList();
-    }
 
     private void subscribeToModel(AircraftViewModel model) {
         mModel = model;

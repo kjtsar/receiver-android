@@ -7,7 +7,6 @@
 package org.opendroneid.android.bluetooth;
 
 import android.Manifest;
-import android.annotation.TargetApi;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.le.BluetoothLeScanner;
@@ -58,10 +57,6 @@ public class BluetoothScanner {
 
     private static String dumpBytes(byte[] bytes) {
         return LogEntry.toHexString(bytes, bytes.length);
-    }
-
-    public BluetoothAdapter getBluetoothAdapter() {
-        return bluetoothAdapter;
     }
 
     private final ScanCallback scanCallback = new ScanCallback() {

@@ -79,10 +79,14 @@ public class WiFiScanner {
                     try {
                         List<ScanResult> wifiList = wifiManager.getScanResults();
                         for (ScanResult scanResult : wifiList) {
-                            handleResult(scanResult);
+                            try {
+                                handleResult(scanResult);
+                            } catch (Exception e) {
+                                Log.d(TAG, String.format("oSRA():handleResult() raised:\n  %s", e));
+                            }
                         }
-                    } catch (Exception e) {
-                        Log.d(TAG, String.format("oSRA():handleResult() raised:\n  %s", e));
+                    } catch (SecurityException se) {
+                        Log.e(TAG, String.format("oSRA():handleResult() raised:\n  %s", se));
                     }
                 }
             };
@@ -94,15 +98,19 @@ public class WiFiScanner {
                             WifiManager.EXTRA_RESULTS_UPDATED, false);
                     if (success) {
                         scanSuccess++;
-                        List<ScanResult> wifiList = wifiManager.getScanResults();
-                        for (ScanResult scanResult : wifiList) {
-                            try {
-                                handleResult(scanResult);
-                            } catch (NoSuchFieldException | IllegalAccessException e) {
-                                Log.d(TAG, String.format("oR():handleResult() raised:\n  %s", e));
+                        try {
+                            List<ScanResult> wifiList = wifiManager.getScanResults();
+                            for (ScanResult scanResult : wifiList) {
+                                try {
+                                    handleResult(scanResult);
+                                } catch (NoSuchFieldException | IllegalAccessException e) {
+                                    Log.d(TAG, String.format("oR():handleResult() raised:\n  %s", e));
+                                }
                             }
+                        } catch (SecurityException se) {
+                            Log.e(TAG, String.format("wifiManager.getScanResults() raised:\n  %s", se));
+
                         }
-                    } else {
                         // scan failure handling
                         scanFails++;
                     }
@@ -183,6 +191,8 @@ public class WiFiScanner {
             try {
                 Log.d(TAG, "Starting WiFi NaN scanning");
                 wifiAwareManager.attach(attachCallback, identityChangedListener, null);
+            } catch (SecurityException se) {
+                Log.e(TAG, String.format("wifiAwareManager().attach() raised:\n  %s", se));
             } catch (Exception e) {
                 Log.e(TAG, String.format(Locale.US, "wifiAwareManager.attach() raised:\n %s", e));
             }
