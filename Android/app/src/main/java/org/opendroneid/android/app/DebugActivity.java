@@ -32,6 +32,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -51,6 +52,7 @@ import com.google.android.material.snackbar.Snackbar;
 import org.opendroneid.android.Constants;
 import org.opendroneid.android.PermissionUtils;
 import org.opendroneid.android.R;
+import org.opendroneid.android.bluetooth.BluetoothScanner;
 import org.opendroneid.android.data.CaltopoClient;
 import org.opendroneid.android.data.WaypointTrack;
 import org.opendroneid.android.log.LogWriter;
@@ -297,6 +299,27 @@ public class DebugActivity extends AppCompatActivity {
 
     private void finalizeOnCreate() {
         Log.d(TAG, "finalizeOnCreate");
+
+        WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        if (!wifiManager.isWifiEnabled()) {
+            Intent panelIntent = new Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY);
+            startActivity(panelIntent);
+        }
+
+        BluetoothAdapter bluetoothAdapter = BluetoothScanner.getBluetoothAdapter(getAppContext());
+        if (bluetoothAdapter != null) {
+            // Is Bluetooth turned on?
+            if (!bluetoothAdapter.isEnabled()) {
+                // Prompt user to turn on Bluetooth (logic continues in onActivityResult()).
+                try {
+                    Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+                    startActivity(enableBtIntent);
+                } catch (SecurityException se) {
+                    Log.e(TAG, String.format(Locale.US, "Not able to turn on bluetooth - %s", se));
+                }
+            }
+        }
+
         String archivePathVal = CaltopoClient.getArchivePath();
         if (null == archivePathVal) {
             CaltopoClient.queryUserForArchiveDir();

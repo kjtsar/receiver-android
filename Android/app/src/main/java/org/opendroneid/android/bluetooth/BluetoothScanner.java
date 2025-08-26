@@ -23,6 +23,7 @@ import android.util.Log;
 
 import androidx.core.app.ActivityCompat;
 
+import org.opendroneid.android.app.DebugActivity;
 import org.opendroneid.android.log.LogEntry;
 import org.opendroneid.android.log.LogMessageEntry;
 import org.opendroneid.android.log.LogWriter;
@@ -44,11 +45,13 @@ public class BluetoothScanner {
     public BluetoothScanner(Context context, OpenDroneIdDataManager dataManager) {
         this.context = context;
         this.dataManager = dataManager;
+        bluetoothAdapter = getBluetoothAdapter(context);
+    }
 
+    public static BluetoothAdapter getBluetoothAdapter(Context context) {
         Object object = context.getSystemService(Context.BLUETOOTH_SERVICE);
-        if (object == null)
-            return;
-        bluetoothAdapter = ((android.bluetooth.BluetoothManager) object).getAdapter();
+        if (object == null) return null;
+        return ((android.bluetooth.BluetoothManager) object).getAdapter();
     }
 
     public void setLogger(LogWriter logger) {
