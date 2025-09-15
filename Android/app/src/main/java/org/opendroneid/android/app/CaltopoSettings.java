@@ -9,14 +9,17 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.ListAdapter;
 import android.widget.ListView;
 import android.widget.TextView;
+import android.widget.ToggleButton;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.DialogFragment;
+import androidx.fragment.app.FragmentTransaction;
 
 import org.opendroneid.android.data.CaltopoClient;
 import org.opendroneid.android.R;
@@ -35,6 +38,8 @@ class ViewMap {
     long lastUnsavedMsgsCount;
     View convertView;
     boolean viewIsCurrent;
+    Button finishTrackButton;
+    CaltopoClient ctClient;
 }
 
 /**
@@ -43,6 +48,8 @@ class ViewMap {
  */
 public class CaltopoSettings extends DialogFragment implements TextWatcher, ListAdapter, View.OnClickListener {
     private static final String TAG = "CaltopoSettings";
+    private static final String GROUP_ID_LABEL = "Group Id";
+    private static final String MAP_ID_LABEL = "Map Id";
 
     public CaltopoSettings() {
         // Required empty public constructor
@@ -60,6 +67,8 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
     LayoutInflater inflater;
     ViewMap[] viewMaps;
     Hashtable<String, String> htClone;
+    TextView groupMapLabel;
+    ToggleButton directToggle;
 
     public static CaltopoSettings newInstance() {
         return new CaltopoSettings();
@@ -80,12 +89,26 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
 
     public void checkGroupId() {
         String newVal = groupIdText.getText().toString();
-        if (0 != newVal.compareTo(groupIdTextVal)) {
-            Log.i(TAG, String.format("groupId changing to '%s' from '%s'", newVal, groupIdTextVal));
-            groupIdTextVal = CaltopoClient.setGroupId(newVal);
-            if (0 != groupIdTextVal.compareTo(newVal)) {
-                groupIdText.setText(groupIdTextVal);
-                Log.i(TAG, String.format("... but CaltopoClient went with '%s' instead.", groupIdTextVal));
+        String oldVal;
+
+        Boolean useDirectFlag = CaltopoClient.getUseDirectFlag();
+        if (useDirectFlag) {
+            // then groupId is being used as Map Id:
+            oldVal = CaltopoClient.getMapId();
+        } else {
+            oldVal = groupIdTextVal;
+        }
+        if (0 != newVal.compareTo(oldVal)) {
+            Log.i(TAG, String.format(Locale.US, "%s changing to '%s' from '%s'",
+                    useDirectFlag ? MAP_ID_LABEL : GROUP_ID_LABEL,  newVal, oldVal));
+            if (useDirectFlag) {
+                oldVal = CaltopoClient.setMapId(newVal);
+            } else {
+                oldVal = CaltopoClient.setGroupId(newVal);
+            }
+            if (0 != oldVal.compareTo(newVal)) {
+                groupIdText.setText(oldVal);
+                Log.i(TAG, String.format("... but CaltopoClient went with '%s' instead.", oldVal));
             }
         }
     }
@@ -173,7 +196,6 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
     }
     @Override public View getView(int pos, @Nullable View convertView, @NonNull ViewGroup parent) {
         ViewMap vm = viewMaps[pos];
-        CaltopoClient client;
 
         if (null == convertView || null == vm.convertView) {
             // Log.i(TAG, String.format("getView(%d)%d,%d fabricating view for key:%s, val:%s.", pos, System.identityHashCode(vm.convertView), System.identityHashCode(convertView), vm.key, vm.val));
@@ -193,16 +215,32 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
     //        Log.i(TAG, String.format("getView(%d)%d editable for key:%s, val:%s.", pos, System.identityHashCode(vm.editable), vm.key, vm.val));
             vm.editText.addTextChangedListener(this);
             vm.msgCountText = vm.convertView.findViewById(R.id.msgCount);
-            client = CaltopoClient.clientForRemoteId(vm.key);
-            if (null != client) {
-                long unsavedMsgCount = client.unsavedMsgCount();
-                vm.msgCountText.setText(String.format(Locale.US, "%d", unsavedMsgCount));
-                vm.lastUnsavedMsgsCount = unsavedMsgCount;
+            vm.finishTrackButton = vm.convertView.findViewById(R.id.finishTrack);
+            if (CaltopoClient.getUseDirectFlag()) {
+                vm.finishTrackButton.setEnabled(true);
+                vm.finishTrackButton.setText("Finish");
+                vm.finishTrackButton.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        Log.i(TAG, String.format(Locale.US, "starting new track for '%s:%s'",
+                                vm.key, vm.val));
+                        (DebugActivity.getDebugActivity()).archiveTracks();
+                        vm.msgCountText.setText("0");
+                        vm.ctClient.finishTrack();
+                    }
+                });
+            } else {
+                vm.finishTrackButton.setEnabled(false);
+                vm.finishTrackButton.setText("");
+                vm.finishTrackButton.setOnClickListener(null);
             }
+
+            long unsavedMsgCount = vm.ctClient.unsavedMsgCount();
+            vm.msgCountText.setText(String.format(Locale.US, "%d", unsavedMsgCount));
+            vm.lastUnsavedMsgsCount = unsavedMsgCount;
             vm.viewIsCurrent = true;
+  //          Log.i(TAG, String.format(Locale.US, "getView(%d:%s(%d)) now current.", pos, vm.val, vm.convertView.hashCode()));
         } else {
-    //        Log.i(TAG, String.format("getView(%d)%d is current for editable:%d key:%s, val:%s.", pos,
-    //                System.identityHashCode(vm.convertView), System.identityHashCode(vm.editable), vm.key, vm.val));
+  //          Log.i(TAG, String.format(Locale.US, "getView(%d:%s(%d)) is current.", pos, vm.val, vm.convertView.hashCode()));
         }
         return vm.convertView;
     }
@@ -255,11 +293,26 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
             viewMaps[i].key = key;
             viewMaps[i].val = val;
             viewMaps[i].viewIsCurrent = false;
-     //       Log.i(TAG, String.format("buildViewMap(%d) key:%s, val:%s.", i, key, val));
+            viewMaps[i].ctClient = CaltopoClient.clientForRemoteId(key);
             i++;
         }
     }
 
+    public void updateViewMaps() {
+        if (null == viewMaps) return;
+
+        for (int i = 0; i < viewMaps.length; i++) {
+            viewMaps[i].viewIsCurrent = false;
+            Log.i(TAG, String.format(Locale.US, "updateViewMaps(%s) not current.", viewMaps[i].val));
+        }
+        mapListView.invalidateViews();
+    }
+    public void runCaltopoDirectConfigPanel() {
+        CaltopoDirectSettings configPanel = new CaltopoDirectSettings();
+        FragmentTransaction transaction = getActivity().getSupportFragmentManager().beginTransaction();
+        Log.d(TAG, "runCaltopoDirectConfigPanel(): starting CaltopoDirectSettings...");
+        configPanel.show(transaction, "CaltopoDirectSettings");
+    }
 
     @Override @Nullable
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
@@ -275,7 +328,6 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
         closeButton.setOnClickListener(this);
         groupIdText = settingsView.findViewById(R.id.groupIdText);
         groupIdTextVal = CaltopoClient.getGroupId();
-        groupIdText.setText(groupIdTextVal);
         groupIdText.addTextChangedListener(this);
         archivePathText = settingsView.findViewById(R.id.archiveDirVal);
         archivePathText.setText(archivePathVal == null ? "<undefined>" : archivePathVal);
@@ -289,6 +341,46 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
         minChangedText.addTextChangedListener(this);
         mapListView = settingsView.findViewById(R.id.ct_mapListview);
         mapListView.setAdapter(this);
+        groupMapLabel = settingsView.findViewById(R.id.groupLabelText);
+        directToggle = settingsView.findViewById(R.id.ct_directToggle);
+
+        boolean useDirect = CaltopoClient.getUseDirectFlag();
+
+        if (useDirect) {
+            directToggle.setChecked(true);
+            groupMapLabel.setText(MAP_ID_LABEL);
+            groupIdText.setText(CaltopoClient.getMapId());
+        } else {
+            directToggle.setChecked(false);
+            groupMapLabel.setText(GROUP_ID_LABEL);
+            groupIdText.setText(groupIdTextVal);
+        }
+        directToggle.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
+                // This block of code will be executed when the checked state changes
+                if (isChecked) {
+
+                    // ToggleButton is ON
+                    Log.i(TAG, "directToggle is ON");
+                    // Configure for direct tracking (groupIdText now MapId):
+                    groupMapLabel.setText(MAP_ID_LABEL);
+                    runCaltopoDirectConfigPanel();
+                    groupIdText.setText(CaltopoClient.getMapId());
+                    CaltopoClient.setUseDirect(true);
+                } else {
+
+                    // ToggleButton is OFF
+                    Log.i(TAG, "directToggle is OFF");
+                    // Configure for live tracking (groupIdText now groupId):
+                    groupMapLabel.setText(GROUP_ID_LABEL);
+                    groupIdText.setText(groupIdTextVal);
+                    CaltopoClient.setUseDirect(false);
+                }
+                updateViewMaps();
+            }
+        });
+
         return settingsView;
     }
 }

@@ -91,8 +91,8 @@ public class OpenDroneIdDataManager {
         // remove nulls and any other garbage from idstr:
         String idStr = rawStr.replaceAll("[^\\.A-Z0-9]", "");
         if (idStr.isEmpty()) {
-            Log.w(TAG, String.format(Locale.US, "updateCaltopo(): Ignoring message with invalid id from mac:0x%x transport:%s",
-                    ac.getMacAddress(), transportType));
+//            Log.w(TAG, String.format(Locale.US, "updateCaltopo(): Ignoring message with invalid id from mac:0x%x transport:%s",
+//                    ac.getMacAddress(), transportType));
             return;
         }
 

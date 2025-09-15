@@ -19,7 +19,7 @@
     <string name="Show_log_location">Show log location</string>
 
     <string name="Caltopo">Caltopo</string>
-    <string name="Caltopo_Configuration">Caltopo Configuration</string>
+    <string name="Caltopo_Configuration">CaltopoCfg</string>
     <string name="ct_groupid">Group Id:</string>
     <string name="ct_groupidVal"></string>
     <string name="ct_minChgFt">Min Chg In Feet:</string>
@@ -132,9 +132,24 @@
         See the claimed support for this device for this feature in the options menu.&lt;br&gt;</string>
     <!-- TODO: Remove or change this placeholder text -->
     <string name="hello_blank_fragment">Hello blank fragment</string>
-    <string name="ct_SaveButton">SAVE</string>
+    <string name="ct_SaveButton">Save</string>
+    <string name="ct_directButton">Direct</string>
     <string name="ct_closeButton">Close</string>
     <string name="ct_archiveDirDesc">Archive Path:</string>
     <string name="ct_archivePath">archive path</string>
+    <!-- Preference Titles -->
+    <string name="messages_header">Messages</string>
+    <string name="sync_header">Sync</string>
+
+    <!-- Messages Preferences -->
+    <string name="signature_title">Your signature</string>
+    <string name="reply_title">Default reply action</string>
+
+    <!-- Sync Preferences -->
+    <string name="sync_title">Sync email periodically</string>
+    <string name="attachment_title">Download incoming attachments</string>
+    <string name="attachment_summary_on">Automatically download attachments for incoming emails
+    </string>
+    <string name="attachment_summary_off">Only download attachments when manually requested</string>
 
 </resources>

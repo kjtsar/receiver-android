@@ -320,15 +320,17 @@ public class DebugActivity extends AppCompatActivity {
             }
         }
 
-        String archivePathVal = CaltopoClient.getArchivePath();
-        if (null == archivePathVal) {
-            CaltopoClient.queryUserForArchiveDir();
-        }
         createNewLogfile();
     }
 
     private void initialize() {
         Log.d(TAG, "initialize()");
+
+        CaltopoClient.initializeForActivityAndContext(this, getApplicationContext());
+        String archivePathVal = CaltopoClient.getArchivePath();
+        if (null == archivePathVal) {
+            CaltopoClient.queryUserForArchiveDir();
+        }
         mModel.setAllAircraft(dataManager.getAircraft());
 
         final Observer<Set<AircraftObject>> listObserver = airCrafts -> {
@@ -364,7 +366,6 @@ public class DebugActivity extends AppCompatActivity {
         Log.d(TAG, String.format(Locale.US, "onCreate(): Starting ScanningService from activity 0x%x", this.hashCode()));
         Intent serviceIntent = new Intent(this , ScanningService.class);
         getApplicationContext().startForegroundService(serviceIntent);
-        CaltopoClient.initializeForActivityAndContext(this, getApplicationContext());
     }
 
     @Override
@@ -535,6 +536,7 @@ public class DebugActivity extends AppCompatActivity {
             stopService(serviceIntent);
             Log.i(TAG, "onDestroy() archiving tracks...");
             archiveTracks();
+            CaltopoClient.shutdown();
             appActivity = null;
             forceStopApp();
         }

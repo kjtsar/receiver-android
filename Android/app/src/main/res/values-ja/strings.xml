@@ -21,7 +21,7 @@
     <string name="Log_enabled">Log有効</string>
     <string name="Show_log_location">位置情報ログ閲覧</string>
     <string name="Caltopo">Caltopo</string>
-    <string name="Caltopo_Configuration">Caltopo Configuration</string>
+    <string name="Caltopo_Configuration">Caltopo Cfg</string>
     <string name="ct_groupid">Group Id</string>
     <string name="ct_groupidVal"></string>
     <string name="ct_minChgFt">Min Chg In Feet:</string>
@@ -133,7 +133,8 @@
     <string name="nanHelp">Wi-Fi Neighbor-aware Network リモートID信号の受信は、Wi-Fi NaNをサポートしている端末のみ可能です。&lt;br&gt;&lt;br&gt;
         オプションメニューのこれらの機能については、このデバイスに関するサポート仕様をご参照ください。&lt;br&gt;</string>
     <string name="hello_blank_fragment">Hello blank fragment</string>
-    <string name="ct_SaveButton">SAVE</string>
+    <string name="ct_directButton">Direct</string>
+    <string name="ct_SaveButton">Save</string>
     <string name="ct_closeButton">Close</string>
     <string name="ct_archiveDirDesc">Archive Path:</string>
     <string name="ct_archivePath">archive path</string>
