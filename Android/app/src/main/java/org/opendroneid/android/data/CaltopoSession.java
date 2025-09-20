@@ -121,51 +121,36 @@ enum CtsMethod_t {
 public class CaltopoSession {
     private static final String TAG = "CaltopoSession";
     private static final int DEFAULT_TIMEOUT_MS = 2 * 60 * 1000;
-    private final CtLineProperty CtLinePropertyDefault = new CtLineProperty();
-
-	private final boolean SessionDebugFlag = true;
-
+	private static ExecutorService ExecutorPool;
+	private final CtLineProperty CtLinePropertyDefault = new CtLineProperty();
+	private static CaltopoSessionConfig Config;
 	private static final String CALTOPO_API_V1 = "/api/v1/map/";
+	private static boolean SessionDebugFlag = false;
 
+	// instance variables:
     private String mapId;
-    private CaltopoSessionConfig config;
+
+	private CaltopoOp lastOpenMapOp;
     private long lastSyncTimestamp;
-	private static ExecutorService executorPool;
 
-    public CaltopoSession () throws RuntimeException {
-		throw new RuntimeException("Use CaltopoSession(CaltopoConfig) instead.");
+    public CaltopoSession() throws RuntimeException {
+		if (null == Config) {
+			throw new RuntimeException(
+					"CaltopoSession(): Use SetCfg() prior to constructing sessions.");
+		}
     }
 
-    public CaltopoSession(CaltopoSessionConfig config) throws RuntimeException {
-		setCfg(config);
-    }
-
-	public void setCfg(CaltopoSessionConfig cfg) throws RuntimeException {
-		if (null == cfg || null == cfg.teamId ||
-				null == cfg.credentialId ||
-				null == cfg.credentialSecret ||
-				null == cfg.domainAndPort ||
-				cfg.teamId.isEmpty() ||
-				cfg.credentialId.isEmpty() ||
-				cfg.credentialSecret.isEmpty() ||
-				cfg.domainAndPort.isEmpty()) {
-			throw new RuntimeException("Can't connect without credentials.");
+	public static void Shutdown() {
+		if (ExecutorPool != null) {
+			ExecutorPool.shutdown();
 		}
-		config = cfg;
-	}
-
-
-	public static void shutdown() {
-		if (executorPool != null) {
-			executorPool.shutdown();
-		}
-		executorPool = null;
+		ExecutorPool = null;
     }
 
     /*
      * @param method
      */
-    private static String sign(CtsMethod_t method, String url, long expiresMsec,
+    private static String Sign(CtsMethod_t method, String url, long expiresMsec,
 			       String payload, String credentialSecret) {
 		try {
 			// Construct the message
@@ -192,13 +177,13 @@ public class CaltopoSession {
 		}
     }
 
-	private static String encodeParm(String key, String val) {
+	private static String EncodeParm(String key, String val) {
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
 			return key + "=" + URLEncoder.encode(val, StandardCharsets.UTF_8);
 		}
 		return key + "=" + URLEncoder.encode(val);
 	}
-    private static String encodeParams(Map<String,String> params) {
+    private static String EncodeParams(Map<String,String> params) {
 		StringBuilder paramString = new StringBuilder();
 		for (Map.Entry<String,String> entry : params.entrySet()) {
 			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -215,42 +200,23 @@ public class CaltopoSession {
 		return retval;
     }
 
-    /** posts message to the background executor pool and returns immediately.
-	 *
-	 * @param op This is the data structure used to keep track of each asynchronous
-	 *   communication with caltopo.
-	 *
-	 * @param method This enum specifies the http operation see <CtsMethod_t></CtsMethod_t>
-	 *
-	 * @param url url suffix if goNaked false, otherwise the complete url to send to.
-	 *
-	 * @param payload The JSON structure to be sent as the payload.
-	 *
-	 * @param goNaked If true, then just perform simple http transfer.  If false, then
-	 *                build a credentialed message based on the Caltopo API.
-     */
-    private CaltopoOp sendRequest(CaltopoOp op, CtsMethod_t method,
-								  String url, JSONObject payload, boolean goNaked)
-			throws InterruptedException {
-		// NOTE: only one bg thread to communicate w/caltopo - we are one of many users...
-		if (null == executorPool) {
-			executorPool = Executors.newFixedThreadPool(1);
+	public static void SetCfg(CaltopoSessionConfig cfg) throws RuntimeException {
+		if (null == cfg || null == cfg.teamId ||
+				null == cfg.credentialId ||
+				null == cfg.credentialSecret ||
+				null == cfg.domainAndPort ||
+				cfg.teamId.isEmpty() ||
+				cfg.credentialId.isEmpty() ||
+				cfg.credentialSecret.isEmpty() ||
+				cfg.domainAndPort.isEmpty()) {
+			throw new RuntimeException("Can't connect without credentials.");
 		}
-		op.goNaked = goNaked;
-		op.method = method;
-		op.url = url;
-		op.payload = payload;
-		op.asyncFuture = executorPool.submit(new Callable<CaltopoOp>() {
-            @Override
-            public CaltopoOp call() throws InterruptedException {
-                return CaltopoSession.this.bgSendRequest(op);
-            }
-        });
-		return op;
-    }
-    
-    // this needs to be run in background thread to prevent blocking the app thread.
-    private CaltopoOp bgSendRequest(CaltopoOp op) throws InterruptedException {
+		Config = cfg;
+	}
+
+
+	// this needs to be run in background thread to prevent blocking the app thread.
+	private static CaltopoOp BgSendRequest(CaltopoOp op) throws InterruptedException {
 		boolean retry;
 		do  {
 			retry = false;
@@ -263,16 +229,16 @@ public class CaltopoSession {
 				String query = "";
 				if (!op.goNaked) {
 					// Generate the signature
-					String signature = sign(op.method, op.url, expires, payloadString, config.credentialSecret);
+					String signature = Sign(op.method, op.url, expires, payloadString, Config.credentialSecret);
 					params.put("signature", signature);
-					params.put("id", config.credentialId);
+					params.put("id", Config.credentialId);
 					params.put("expires", String.valueOf(expires));
 				}
 
 				if (op.method == CtsMethod_t.POST && op.payload != null) {
 					params.put("json", payloadString);
 				} else if (!params.isEmpty()) {
-					query = "?" + encodeParams(params);
+					query = "?" + EncodeParams(params);
 				}
 
 				// Construct the full URL
@@ -280,7 +246,7 @@ public class CaltopoSession {
 				if (op.goNaked) {
 					fullUrl = op.url + query;
 				} else {
-					fullUrl = "https://" + op.cts.config.domainAndPort + op.url + query;
+					fullUrl = "https://" + Config.domainAndPort + op.url + query;
 				}
 
 				// Open a connection
@@ -288,7 +254,7 @@ public class CaltopoSession {
 				connection.setRequestMethod(op.method.toString());
 				connection.setRequestProperty("User-Agent", "RID2Caltopo/0.2");
 				if (op.method == CtsMethod_t.POST && op.payload != null) {
-					String body = encodeParams(params);
+					String body = EncodeParams(params);
 					connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
 					connection.setRequestProperty("Content-Length", String.valueOf(body.length()));
 					connection.setDoOutput(true);
@@ -333,7 +299,7 @@ public class CaltopoSession {
 					op.goodResponse = false;
 				}
 				if (SessionDebugFlag) {
-					Log.i(TAG, "_sendRequest(): Normal Completion:" + op.toString());
+					Log.i(TAG, "BgSendRequest(): Normal Completion:" + op.toString());
 				}
 
 			} catch (UnknownHostException e) {
@@ -349,6 +315,43 @@ public class CaltopoSession {
 						"' \n  op:\n" + op);
 			}
 		} while (retry);
+		return op;
+	}
+
+
+	// CaltopoSession Instance methods:
+
+	/** posts message to the background executor pool and returns immediately.
+	 *
+	 * @param op This is the data structure used to keep track of each asynchronous
+	 *   communication with caltopo.
+	 *
+	 * @param method This enum specifies the http operation see <CtsMethod_t></CtsMethod_t>
+	 *
+	 * @param url url suffix if goNaked false, otherwise the complete url to send to.
+	 *
+	 * @param payload The JSON structure to be sent as the payload.
+	 *
+	 * @param goNaked If true, then just perform simple http transfer.  If false, then
+	 *                build a credentialed message based on the Caltopo API.
+     */
+    private CaltopoOp sendRequest(CaltopoOp op, CtsMethod_t method,
+								  String url, JSONObject payload, boolean goNaked)
+			throws InterruptedException {
+		// NOTE: only one bg thread to communicate w/caltopo - we are one of many users...
+		if (null == ExecutorPool) {
+			ExecutorPool = Executors.newFixedThreadPool(1);
+		}
+		op.goNaked = goNaked;
+		op.method = method;
+		op.url = url;
+		op.payload = payload;
+		op.asyncFuture = ExecutorPool.submit(new Callable<CaltopoOp>() {
+            @Override
+            public CaltopoOp call() throws InterruptedException {
+                return BgSendRequest(op);
+            }
+        });
 		return op;
     }
 
@@ -377,8 +380,8 @@ public class CaltopoSession {
 		String urlEnd = CALTOPO_API_V1 + this.mapId + "/since/" +
 				Math.max(0, this.lastSyncTimestamp - 500);
 
-		CaltopoOp op = new CaltopoOp(this);
-		return this.sendRequest(op, CtsMethod_t.GET, urlEnd, null, false);
+		lastOpenMapOp = new CaltopoOp(this);
+		return this.sendRequest(lastOpenMapOp, CtsMethod_t.GET, urlEnd, null, false);
     }
 
     /** Add a folder.
@@ -406,7 +409,7 @@ public class CaltopoSession {
     }
     
     
-    /** addLine() - add one or more points to a line in the session's map.
+    /** addLine() - add line to the session's map.
 	 *
 	 * @param pointArray - array of {lng,lat] arrays.
      * @param lineLabel - text label for line.
@@ -506,7 +509,8 @@ public class CaltopoSession {
 		return op;
 	}
 
-	public CaltopoOp startLiveTrack(String groupId, String deviceId, String folderId, CtLineProperty lineProp)
+	public CaltopoOp startLiveTrack(String groupId, String deviceId, String folderId,
+									String description, CtLineProperty lineProp)
 			throws RuntimeException, InterruptedException, JSONException {
 		JSONObject prop = new JSONObject();
 		if (null == deviceId || deviceId.isEmpty()) {
@@ -519,6 +523,7 @@ public class CaltopoSession {
 		prop.put("stroke-opacity", lineProp.opacity);
 		prop.put("stroke", lineProp.color);
 		prop.put("pattern", lineProp.pattern);
+		if (null != description && !description.isEmpty()) prop.put("descripion", description);
 		prop.put("class", "LiveTrack");
 		if (folderId != null && !folderId.isEmpty()) {
 			prop.put("folderId", folderId);
@@ -540,9 +545,9 @@ public class CaltopoSession {
 		String latStr = String.format(Locale.US, "%.7f", lat);
 		String lngStr = String.format(Locale.US, "%.7f", lng);
 		String url = "https://caltopo.com/api/v1/position/report/" + groupId + "?" +
-				encodeParm("id", deviceId) + "&" +
-				encodeParm("lat", latStr) + "&" +
-				encodeParm("lng", lngStr);
+				EncodeParm("id", deviceId) + "&" +
+				EncodeParm("lat", latStr) + "&" +
+				EncodeParm("lng", lngStr);
 
 		CaltopoOp op = new CaltopoOp(this);
 		sendRequest(op, CtsMethod_t.GET, url, null, true);

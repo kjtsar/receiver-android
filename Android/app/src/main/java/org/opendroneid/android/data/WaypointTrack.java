@@ -227,7 +227,7 @@ public class WaypointTrack {
 				WaypointTrack newTrack = new WaypointTrack(this.trackLabel);
 				TrackMap.put(trackLabel, newTrack);
 				return newTrack.addWaypoint(lat, lng, altInMeters, timestampInSeconds);
-			} else if (distanceInFeet < CaltopoClient.getMinDistanceInFeet()) {
+			} else if (distanceInFeet < CaltopoClient.GetMinDistanceInFeet()) {
 				return false;
 			}
 		}

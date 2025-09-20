@@ -96,7 +96,7 @@ public class OpenDroneIdDataManager {
             return;
         }
 
-        CaltopoClient client = CaltopoClient.clientForRemoteId(idStr);
+        CaltopoClient client = CaltopoClient.ClientForRemoteId(idStr);
         LocationData location = ac.getLocation();
         if (null != location) {
             long altitudeInMeters = (long)location.getAltitudeGeodetic();

@@ -1,8 +1,5 @@
 package org.opendroneid.android.data;
 
-
-import androidx.annotation.NonNull;
-
 import org.jetbrains.annotations.Nullable;
 
 import java.io.Serial;

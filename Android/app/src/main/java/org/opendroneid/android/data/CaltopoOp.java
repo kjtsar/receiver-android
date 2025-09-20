@@ -10,6 +10,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import android.util.Log;
 
+import androidx.annotation.NonNull;
+
 /* Object for keeping track of communications to/from Caltopo server.
  * Note that each operation returns an integer operation number for the 
  * corresponding operation.   You can block your thread on that op #,
@@ -68,7 +70,8 @@ public class CaltopoOp implements Future <CaltopoOp> {
 	    
     public JSONObject getResponse() { return responseJson; }
 
-    public String toString() {
+	@Override
+	public String toString() {
 		String jsonStringRep = "";
 		String responseJsonStringRep = "";
 		if (payload != null) {
@@ -95,35 +98,47 @@ public class CaltopoOp implements Future <CaltopoOp> {
 	
 	// syncOp... options for blocking until completion for results:
     public JSONObject syncOpJSONObject()
-			throws ExecutionException, InterruptedException {
+			throws ExecutionException, InterruptedException, JSONException {
 		this.get();
 		if (fail()) {
-			throw new RuntimeException("Op failed - '" + response + "'");
+			throw new JSONException("Op failed - '" + response + "'");
 		}
 		if (null == responseJson) {
-			throw new RuntimeException("op failed to return expected JSONObject in response.\n" + this);
+			throw new JSONException("op failed to return expected JSONObject in response.\n" + this);
 		}
 		return responseJson;
     }
 
+	@NonNull
+	public String responseString() {
+		String msg = "";
+		if (null != responseJson) {
+			try {
+				msg = responseJson.toString(4);
+			} catch (JSONException e) {
+				msg = (null != response) ? response : "";
+			}
+		}
+		return msg;
+	}
 
     public JSONObject syncOpJSONObject(double timeoutInSeconds)
 			throws ExecutionException, InterruptedException,
-			TimeoutException, RuntimeException {
+			TimeoutException, JSONException {
 
 		this.get((long)(timeoutInSeconds * 1000), TimeUnit.MILLISECONDS);
 		if (fail()) {
-			throw new RuntimeException("Op failed - '" + response + "'");
+			throw new JSONException("Op failed - '" + response + "'");
 		}
 		if (null == responseJson) {
-			throw new RuntimeException("op failed to return expected JSONObject in response.\n" + this);
+			throw new JSONException("op failed to return expected JSONObject in response.\n" + this);
 		}
 		return responseJson;
     }
 
 	public String id() throws JSONException {
 		if (null == responseJson) {
-			throw new RuntimeException("op failed to return expected JSONObject in response.\n" + this);
+			throw new JSONException("op failed to return expected JSONObject in response.\n" + this);
 		}
 		return responseJson.getString("id");
 	}

@@ -1,5 +1,6 @@
 package org.opendroneid.android.app;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -28,7 +29,6 @@ public class CaltopoDirectSettings extends DialogFragment implements TextWatcher
     private EditText credIdText;
     private EditText credSecretText;
     private EditText folderText;
-    private EditText droneSymbolText;
     static final String UNSPEC_VAL_STR = "<unspecified>";
     static final String HIDDEN_VAL_STR = "############";
 
@@ -41,14 +41,9 @@ public class CaltopoDirectSettings extends DialogFragment implements TextWatcher
     }
 
     public void onClick(View v) {
-        if (v == closeButton) {
-            dismiss();
-            return;
-        }
-
         if (v == saveChanges) {
-            String newVal, oldVal;
-            CaltopoSessionConfig newCfg = new CaltopoSessionConfig(CaltopoClient.getCaltopoSessionConfig());
+            String newVal;
+            CaltopoSessionConfig newCfg = new CaltopoSessionConfig(CaltopoClient.GetCaltopoSessionConfig());
             boolean newCfgUpdated = false;
 
             saveChanges.setEnabled(false);
@@ -76,21 +71,16 @@ public class CaltopoDirectSettings extends DialogFragment implements TextWatcher
 
             newVal = folderText.getText().toString();
             if (!newVal.isEmpty() && !newVal.equals(UNSPEC_VAL_STR)) {
-                CaltopoClient.setTrackFolderName(newVal);
+                CaltopoClient.SetTrackFolderName(newVal);
                 Log.i(TAG, "onClick(): trackFolder updated:" + newVal);
-            }
-            newVal = droneSymbolText.getText().toString();
-            if (!newVal.isEmpty() && !newVal.equals(UNSPEC_VAL_STR)) {
-                CaltopoClient.setDroneSymbol(newVal);
-                Log.i(TAG, "onClick(): droneSymbol updated:" + newVal);
             }
 
             if (newCfgUpdated) {
-                CaltopoClient.setCaltopoSessionConfig(newCfg);
+                CaltopoClient.SetCaltopoSessionConfig(newCfg);
             }
         }
+        dismiss();
     }
-
 
     @Override @Nullable
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
@@ -102,7 +92,7 @@ public class CaltopoDirectSettings extends DialogFragment implements TextWatcher
         saveChanges.setEnabled(false);
         closeButton = settingsView.findViewById(R.id.ct_directCloseButton);
         closeButton.setOnClickListener(this);
-        CaltopoSessionConfig cfg = CaltopoClient.getCaltopoConfig();
+        CaltopoSessionConfig cfg = CaltopoClient.GetCaltopoConfig();
 
         teamIdText = settingsView.findViewById(R.id.teamIdEditText);
         teamIdText.addTextChangedListener(this);
@@ -138,15 +128,7 @@ public class CaltopoDirectSettings extends DialogFragment implements TextWatcher
             folder = UNSPEC_VAL_STR;
         }
         folderText.setText(folder);
-
-
-        droneSymbolText = settingsView.findViewById(R.id.droneSymbolEditText);
-        droneSymbolText.addTextChangedListener(this);
-        String droneSymbol = CaltopoClient.getDroneSymbol();
-        if (null == droneSymbol || droneSymbol.isEmpty()) {
-            folder = UNSPEC_VAL_STR;
-        }
-        droneSymbolText.setText(droneSymbol);
         return settingsView;
     }
 }
+

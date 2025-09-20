@@ -56,6 +56,9 @@ to be uncommented.
         android:id="@+id/caltopo"
         android:title="@string/Caltopo" />
     <item
+        android:id="@+id/caltopoConfig"
+        android:title="Load Caltopo Config File" />
+    <item
         android:id="@+id/coded_phy"
         android:title="@string/coded_phy_not_supported"
         app:showAsAction="never" />
