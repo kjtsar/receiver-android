@@ -158,7 +158,7 @@ public class CaltopoOp implements Future <CaltopoOp> {
 	}
 
 
-    private void finalize() {
+    public void finalize() {
 		if (DEBUG) Log.i(TAG, String.format(Locale.US, "destroying op %d", this.opNum));
     }
 
