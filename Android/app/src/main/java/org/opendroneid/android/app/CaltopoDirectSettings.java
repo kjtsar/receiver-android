@@ -1,6 +1,5 @@
 package org.opendroneid.android.app;
 
-import android.content.Intent;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;

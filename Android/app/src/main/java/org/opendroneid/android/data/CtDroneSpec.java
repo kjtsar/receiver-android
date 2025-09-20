@@ -10,8 +10,9 @@ import java.io.Serializable;
 import java.util.Locale;
 
 public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
-    private static final String TAG = "CtDroneSpec";
     private static final long Version = 1L;
+    private static final String TAG = "CtDroneSpec";
+
     public String remoteId;
     public String mappedId;   /* The track label prefix assigned to drone */
     public String org;
@@ -56,7 +57,7 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
     /** merge a new dronespec into this spec.
      *  Don't override anything other than the default mappedId.
      *
-     * @param newSpec
+     * @param newSpec Add the contents of newSpec to this spec.
      */
     public void mergeWithNew(CtDroneSpec newSpec) {
 //        Log.i(TAG, String.format(Locale.US, "Merging new dronespec:%s\n into existing:%s",
@@ -71,6 +72,7 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
     }
 
      @Override
+     @NonNull
      public String toString() {
         return String.format(Locale.US,
                 "rid:'%s', mid:'%s', org:'%s', model:'%s', owner:'%s', timestamp:%d",
@@ -87,7 +89,7 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
      */
     @Override
     public int compareTo(@NonNull CtDroneSpec other) {
-        int retval=0;
+        int retval;
         if (other.mostRecentTimeInSeconds == this.mostRecentTimeInSeconds) {
             retval = this.mappedId.compareTo(other.mappedId);
             if (0 == retval) {
@@ -100,6 +102,8 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
         }
         return retval;
     }
+
+    @NonNull
     public CtDroneSpec clone() {
         CtDroneSpec ds = new CtDroneSpec(this.remoteId, this.mappedId, this.org, this.model, this.owner);
         ds.mostRecentTimeInSeconds = this.mostRecentTimeInSeconds;
@@ -112,9 +116,8 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
         if (!other.mappedId.equals(this.mappedId)) return false;
         if (!other.org.equals(this.org)) return false;
         if (!other.owner.equals(this.owner)) return false;
-        if (!other.model.equals(this.model)) return false;
-        return true;
-     }
+        return other.model.equals(this.model);
+    }
      public int reverseCompareTo(@NonNull CtDroneSpec other) {
          return other.compareTo(this);
      }

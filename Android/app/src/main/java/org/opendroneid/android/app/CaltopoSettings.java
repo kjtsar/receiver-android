@@ -187,8 +187,7 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
     }
     private void checkRidMap() {
         if (null == viewMaps) return;
-        for (int i = 0; i < viewMaps.length; i++) {
-            ViewMap vm = viewMaps[i];
+        for (ViewMap vm : viewMaps) {
             CtDroneSpec ds = vm.ctClient.getDroneSpec().clone();
             boolean dsChanged = false;
 
@@ -196,28 +195,32 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
             if (!newVal.equals(ds.mappedId)) {
                 Log.i(TAG, String.format(Locale.US,
                         "ridMap[%s] changing mappedId from '%s' to '%s'", vm.remoteId, ds.mappedId, newVal));
-                ds.mappedId = newVal; dsChanged = true;
+                ds.mappedId = newVal;
+                dsChanged = true;
             }
 
             newVal = vm.orgEditText.getText().toString().trim();
             if (!newVal.isEmpty() && !newVal.equals(ds.org)) {
                 Log.i(TAG, String.format(Locale.US,
                         "ridMap[%s] changing org from '%s' to '%s'", vm.remoteId, ds.org, newVal));
-                ds.org = newVal; dsChanged = true;
+                ds.org = newVal;
+                dsChanged = true;
             }
 
             newVal = vm.modelEditText.getText().toString().trim();
             if (!newVal.isEmpty() && !newVal.equals(ds.model)) {
                 Log.i(TAG, String.format(Locale.US,
                         "ridMap[%s] changing model from '%s' to '%s'", vm.remoteId, ds.model, newVal));
-                ds.model = newVal; dsChanged = true;
+                ds.model = newVal;
+                dsChanged = true;
             }
 
             newVal = vm.ownerEditText.getText().toString().trim();
             if (!newVal.isEmpty() && !newVal.equals(ds.owner)) {
                 Log.i(TAG, String.format(Locale.US,
                         "ridMap[%s] changing owner from '%s' to '%s'", vm.remoteId, ds.owner, newVal));
-                ds.owner = newVal; dsChanged = true;
+                ds.owner = newVal;
+                dsChanged = true;
             }
 
             if (dsChanged) {
@@ -428,7 +431,7 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
             @Override
             public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
                 // This block of code will be executed when the checked state changes
-                Log.i(TAG, "directToggle is " + String.valueOf(isChecked));
+                Log.i(TAG, "directToggle is " + isChecked);
                 if (isChecked) {
                     runCaltopoDirectConfigPanel();
                     mapIdText.setText(CaltopoClient.GetMapId());

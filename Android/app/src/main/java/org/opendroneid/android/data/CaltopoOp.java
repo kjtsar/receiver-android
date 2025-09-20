@@ -71,6 +71,7 @@ public class CaltopoOp implements Future <CaltopoOp> {
     public JSONObject getResponse() { return responseJson; }
 
 	@Override
+	@NonNull
 	public String toString() {
 		String jsonStringRep = "";
 		String responseJsonStringRep = "";
@@ -157,7 +158,7 @@ public class CaltopoOp implements Future <CaltopoOp> {
 	}
 
 
-    public void finalize() {
+    private void finalize() {
 		if (DEBUG) Log.i(TAG, String.format(Locale.US, "destroying op %d", this.opNum));
     }
 
