@@ -41,6 +41,7 @@ public class ScanningService extends Service {
     private OpenDroneIdDataManager mDataManager;
 
     public void startScanning() {
+        if (null == mAppActivity) mAppActivity = DebugActivity.getDebugActivity();
         if (scanning) {
             Log.d(TAG, String.format(Locale.US, "startScanning(): ignoring start request while running."));
             return;
@@ -118,6 +119,7 @@ public class ScanningService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (null == mAppActivity) mAppActivity = DebugActivity.getDebugActivity();
         Log.d(TAG, String.format(Locale.US, "onStartCommand(): mAppActivity 0x%x", mAppActivity.hashCode()));
 
 

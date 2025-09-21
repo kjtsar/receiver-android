@@ -549,7 +549,6 @@ public class CaltopoClient {
     }
 
     private static void ArchiveState() {
-        Log.i(TAG, "In ArchiveState()...");
         if (null != Ccstate) try {
             FileOutputStream fos = AppContext.openFileOutput(MyStateFileName, 0);
             ObjectOutputStream oos = new ObjectOutputStream(fos);
@@ -944,14 +943,13 @@ public class CaltopoClient {
                             ShowToast(String.format(Locale.US, "Not able to open/write LiveTrack for group:'%s-%s':\n  %s",
                                     Ccstate.groupId, trackLabel, liveTrackOp.responseString()));
                         WarnLiveTrackFailed = true;
+                        finishTrack();
                         return;
                     }
-
-                    while (!linePoints.isEmpty()) {
-                        point = linePoints.removeFirst();
-                        Log.i(TAG, "publishDirect(%s): adding waypoint to LiveTrack " + Ccstate.groupId + "-" + trackLabel);
-                        liveTrackOp = Csp.addLiveTrackPoint(Ccstate.groupId, trackLabel, point[0], point[1]);
-                    }
+                    // only send one waypoint at a time and verify succesful response before sending the next.
+                    point = linePoints.removeFirst();
+                    Log.i(TAG, "publishDirect(): adding waypoint to LiveTrack " + Ccstate.groupId + "-" + trackLabel);
+                    liveTrackOp = Csp.addLiveTrackPoint(Ccstate.groupId, trackLabel, point[0], point[1]);
                 }
             }
         }

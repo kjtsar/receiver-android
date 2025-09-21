@@ -69,8 +69,7 @@ public class OpenDroneIdDataManager {
             Log.e(TAG, "Not able to parse NaN data.");
             return;
         }
-        Log.i(TAG, "Parsed NaN data.");
-
+        Log.d(TAG, "Caltopo: Wireless NaN for NAN ID: " + peerHash);
         receiveData(timeNano, "NaN ID: " + peerHash, peerHash, 0, message, logMessageEntry, transportType);
     }
 
@@ -91,8 +90,8 @@ public class OpenDroneIdDataManager {
         // remove nulls and any other garbage from idstr:
         String idStr = rawStr.replaceAll("[^\\.A-Z0-9]", "");
         if (idStr.isEmpty()) {
-//            Log.w(TAG, String.format(Locale.US, "updateCaltopo(): Ignoring message with invalid id from mac:0x%x transport:%s",
-//                    ac.getMacAddress(), transportType));
+            Log.w(TAG, String.format(Locale.US, "updateCaltopo(): Ignoring message with invalid id from mac:0x%x transport:%s",
+                    ac.getMacAddress(), transportType));
             return;
         }
 
@@ -145,6 +144,15 @@ public class OpenDroneIdDataManager {
 
         // Handle connection
         boolean newAircraft = false;
+
+        /* FIXME: This assumes that macAddressLong doesn't change.
+         *  Unfortunately, the remote mac address for wireless NaN messages changes.  The spec for the interface
+         *  says not to rely on it for a unique handle to the remote.   So, we really need to parse the message in
+         *  a common data buffer, then use that information to look up the Remote ID (Serial Number) and use that
+         *  as the unique handle to reference an aircraft.  Note that some aircraft remote modules broadcast both
+         *  Wireless and Bluetooth, so ideally should keep track of transport information for each within a single
+         *  aircraft instance.
+         */
         AircraftObject ac = aircraft.get(macAddressLong);
         if (ac == null) {
             ac = createNewAircraft(macAddress, macAddressLong);

@@ -236,18 +236,20 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
 
     // User pushed the "save" or "close" button - check 4 && save any changes:
     public void onClick(View v){
-        if (v == archivePathText || v == archiveDirButton) {
-            CaltopoClient.QueryUserForArchiveDir();
-        }
+        if (v == saveChanges) {
+            if (v == archivePathText || v == archiveDirButton) {
+                CaltopoClient.QueryUserForArchiveDir();
+            }
 
-        saveChanges.setEnabled(false);
-        checkGroupId();
-        checkMapId();
-        checkMinDistance();
-        checkNewTrackDelay();
-        checkMaxDisplayAgeInSec();
-        checkRidMap();
-        (DebugActivity.getDebugActivity()).archiveTracks();
+            saveChanges.setEnabled(false);
+            checkGroupId();
+            checkMapId();
+            checkMinDistance();
+            checkNewTrackDelay();
+            checkMaxDisplayAgeInSec();
+            checkRidMap();
+            (DebugActivity.getDebugActivity()).archiveTracks();
+        }
         dismiss();
     }
 

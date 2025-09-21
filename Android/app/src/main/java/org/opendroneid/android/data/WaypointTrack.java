@@ -65,7 +65,7 @@ public class WaypointTrack {
 	public static int WaypointCount = 0;
 	private static final String TAG = "WaypointTrack";
 
-	public static long MaxDistanceInFeet = 1000;
+	private static final boolean PromiscuousMode = false;
 
 	// map trackLabel to WaypointTrack.
 	public static HashMap<String, WaypointTrack> TrackMap = new HashMap<>();
@@ -216,21 +216,16 @@ public class WaypointTrack {
 		if ((lastTimestampInSeconds != 0) && (timestampInSeconds < lastTimestampInSeconds)) {
 			return false;
 		}
-		if (lastLat != 0.0 && lastLng != 0.0) {
+
+		long minDistanceInFeet = CaltopoClient.GetMinDistanceInFeet();
+		if (!PromiscuousMode) {
 			distanceInFeet = RoughLatLongDeltaInFeet(lat, lng, lastLat, lastLng);
-
-			if (distanceInFeet > MaxDistanceInFeet) {
-				// first archive this track with it's own unique label
-				TrackMap.put(trackLabel + startTimeStr, this);
-
-				// Then we need to start a new track with this label.
-				WaypointTrack newTrack = new WaypointTrack(this.trackLabel);
-				TrackMap.put(trackLabel, newTrack);
-				return newTrack.addWaypoint(lat, lng, altInMeters, timestampInSeconds);
-			} else if (distanceInFeet < CaltopoClient.GetMinDistanceInFeet()) {
-				return false;
-			}
+		} else if (PromiscuousMode && ((lastLat != 0.0 && lastLng != 0.0) ||
+				(lastTimestampInSeconds != timestampInSeconds))) {
+		} else if (distanceInFeet < minDistanceInFeet) {
+			return false;
 		}
+
 		if (lat != 0.0 && lng != 0.0) {
 			JSONArray ja = new JSONArray();
 			ja.put(String.format(Locale.US, "%.6f", lng));
@@ -243,12 +238,17 @@ public class WaypointTrack {
 			lastLng = lng;
 			long deltaTimeInSeconds = (0 != lastTimestampInSeconds) ? timestampInSeconds - lastTimestampInSeconds : 0;
 			lastTimestampInSeconds = timestampInSeconds;
-
-			Log.d(TAG, String.format("addWaypoint(%s): delta %d feet after %d seconds, adding %s", trackLabel,
-					distanceInFeet, deltaTimeInSeconds, ja));
+			if (PromiscuousMode) {
+				Log.d(TAG, String.format("addWaypoint(%s): promiscuous mode (any change) %d seconds, adding %s",
+						trackLabel,	deltaTimeInSeconds, ja));
+			} else {
+				Log.d(TAG, String.format("addWaypoint(%s): delta %d feet after %d seconds, adding %s", trackLabel,
+						distanceInFeet, deltaTimeInSeconds, ja));
+			}
 			retval = true;
 		} else {
-			Log.d(TAG, String.format("addWaypoint(%s):  lat/lng both zero.", trackLabel));
+			// FIXME: Does this mean drone is on the ground/just starting
+			Log.d(TAG, String.format("FIXME: addWaypoint(%s):  lat/lng both zero.", trackLabel));
 		}
 		return retval;
 	}
