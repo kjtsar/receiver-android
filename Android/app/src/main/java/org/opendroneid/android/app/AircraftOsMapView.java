@@ -138,7 +138,7 @@ public class AircraftOsMapView extends Fragment {
     @Override
     public void onResume() {
         super.onResume();
-        Log.d(TAG, "onResume()");
+        // Log.d(TAG, "onResume()");
         if (osvMap != null) {
             osvMap.onResume();
         }
@@ -147,7 +147,7 @@ public class AircraftOsMapView extends Fragment {
     @Override
     public void onPause() {
         super.onPause();
-        Log.d(TAG, "onPause()");
+    //    Log.d(TAG, "onPause()");
         if (osvMap != null) {
             osvMap.onPause();
         }

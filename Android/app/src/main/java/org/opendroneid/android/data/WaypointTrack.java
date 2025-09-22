@@ -210,46 +210,49 @@ public class WaypointTrack {
 	// returns true if waypoint added
 	public boolean addWaypoint(double lat, double lng,
 							   long altInMeters, long timestampInSeconds) {
-		boolean retval = false;
 		long distanceInFeet = 0;
 
-		if ((lastTimestampInSeconds != 0) && (timestampInSeconds < lastTimestampInSeconds)) {
+		if ((lastTimestampInSeconds != 0) && (timestampInSeconds <= lastTimestampInSeconds)) {
+			// have to handle this case because one drone can advertise on both Bluetooth and WiFi
+			// and we can receive multiple updates for the same drone.  We also never want to
+			// update more often than once per second.
 			return false;
 		}
 
-		long minDistanceInFeet = CaltopoClient.GetMinDistanceInFeet();
-		if (!PromiscuousMode) {
-			distanceInFeet = RoughLatLongDeltaInFeet(lat, lng, lastLat, lastLng);
-		} else if (PromiscuousMode && ((lastLat != 0.0 && lastLng != 0.0) ||
-				(lastTimestampInSeconds != timestampInSeconds))) {
-		} else if (distanceInFeet < minDistanceInFeet) {
-			return false;
-		}
+		if (PromiscuousMode) {
+			// even in promiscuous mode, we don't want to record redundant waypoints.
+			if (lat == lastLat && lng == lastLng) return false;
 
-		if (lat != 0.0 && lng != 0.0) {
-			JSONArray ja = new JSONArray();
-			ja.put(String.format(Locale.US, "%.6f", lng));
-			ja.put(String.format(Locale.US, "%.6f", lat));
-			ja.put(String.format(Locale.US, "%d", altInMeters));
-			ja.put(String.format(Locale.US, "%d", timestampInSeconds));
-			coordinates.put(ja);
-			WaypointCount++;
-			lastLat = lat;
-			lastLng = lng;
-			long deltaTimeInSeconds = (0 != lastTimestampInSeconds) ? timestampInSeconds - lastTimestampInSeconds : 0;
-			lastTimestampInSeconds = timestampInSeconds;
-			if (PromiscuousMode) {
-				Log.d(TAG, String.format("addWaypoint(%s): promiscuous mode (any change) %d seconds, adding %s",
-						trackLabel,	deltaTimeInSeconds, ja));
-			} else {
-				Log.d(TAG, String.format("addWaypoint(%s): delta %d feet after %d seconds, adding %s", trackLabel,
-						distanceInFeet, deltaTimeInSeconds, ja));
-			}
-			retval = true;
 		} else {
-			// FIXME: Does this mean drone is on the ground/just starting
-			Log.d(TAG, String.format("FIXME: addWaypoint(%s):  lat/lng both zero.", trackLabel));
+			long minDistanceInFeet = CaltopoClient.GetMinDistanceInFeet();
+			distanceInFeet = RoughLatLongDeltaInFeet(lat, lng, lastLat, lastLng);
+			if (distanceInFeet < minDistanceInFeet) return false;
 		}
-		return retval;
+
+		if (lat == 0.0 && lng == 0.0) {
+			// FIXME: Does this mean the drone is on the ground?
+//			Log.d(TAG, String.format("FIXME/XYZZY: addWaypoint(%s):  lat/lng both zero.", trackLabel));
+			return false;
+		}
+
+		JSONArray ja = new JSONArray();
+		ja.put(String.format(Locale.US, "%.6f", lng));
+		ja.put(String.format(Locale.US, "%.6f", lat));
+		ja.put(String.format(Locale.US, "%d", altInMeters));
+		ja.put(String.format(Locale.US, "%d", timestampInSeconds));
+		coordinates.put(ja);
+		WaypointCount++;
+		lastLat = lat;
+		lastLng = lng;
+		long deltaTimeInSeconds = (0 == lastTimestampInSeconds) ? 0 : timestampInSeconds - lastTimestampInSeconds;
+		lastTimestampInSeconds = timestampInSeconds;
+		if (PromiscuousMode) {
+			Log.d(TAG, String.format("addWaypoint(%s): promiscuous mode (any change) %d seconds, adding %.7f,%.7f",
+					trackLabel,	deltaTimeInSeconds, lat, lng));
+		} else {
+			Log.d(TAG, String.format("addWaypoint(%s): delta %d feet after %d seconds, adding %.7f,%.7f", trackLabel,
+					distanceInFeet, deltaTimeInSeconds, lat, lng));
+		}
+		return true;
 	}
 }

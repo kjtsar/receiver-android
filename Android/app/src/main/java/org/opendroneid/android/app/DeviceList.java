@@ -219,7 +219,7 @@ public class DeviceList extends Fragment {
             @Override
             public void onChanged(Identification identification) {
                 if (identification != null) {
-                    Log.w(TAG, "on changed: " + identification.getIdType() + ", " + identification.getUasIdAsString() + ", " + this);
+                    //Log.w(TAG, "on changed: " + identification.getIdType() + ", " + identification.getUasIdAsString() + ", " + this);
                     setIdText(identification);
 
                     assert droneIcon != null;

@@ -90,10 +90,10 @@ public class BluetoothScanner {
             if (logger != null)
                 logger.logBluetooth(logMessageEntry.getMsgVersion(), result, transportType, csvLog);
 
-            Log.w(TAG, "onScanResult: " + string);
-            if (bytes != null) {
-                Log.w(TAG, "-- bytes: " + dumpBytes(bytes));
-            }
+//            Log.w(TAG, "onScanResult: " + string);
+//            if (bytes != null) {
+//                Log.w(TAG, "-- bytes: " + dumpBytes(bytes));
+//            }
         }
 
         @Override

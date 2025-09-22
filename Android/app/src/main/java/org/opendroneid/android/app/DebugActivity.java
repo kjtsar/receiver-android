@@ -390,7 +390,7 @@ public class DebugActivity extends AppCompatActivity {
 
     @Override
     protected void onResume() {
-        Log.d(TAG, "onResume");
+        // Log.d(TAG, "onResume");
 
         // Wake the main Activity thread regularly, to update time counters and other UI elements
         handler = new Handler(Looper.getMainLooper());
@@ -415,7 +415,7 @@ public class DebugActivity extends AppCompatActivity {
 
     @Override
     protected void onPause() {
-        Log.d(TAG, "onPause");
+        // Log.d(TAG, "onPause");
 
         handler.removeCallbacks(runnableCode);
         if (mFusedLocationClient != null)

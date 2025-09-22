@@ -47,6 +47,7 @@ import javax.net.ssl.HttpsURLConnection;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.Locale;
 import java.util.Hashtable;
@@ -88,7 +89,7 @@ class ClientClassState implements Serializable {
         caltopoSessionConfig = null;
         mapId = "";
         useDirectFlag = false;
-        newTrackDelayInSeconds = 60;
+        newTrackDelayInSeconds = 20;
         maxDisplayAgeInSeconds = 0 ;
         droneSpecTable = new Hashtable<>(16);
     }
@@ -164,7 +165,7 @@ public class CaltopoClient {
     private int trackSuffix;
     private String trackLabel;
     private CaltopoOp liveTrackOp;
-    private String remoteId;
+    private final String remoteId;
     private CtDroneSpec droneSpec;
     private LinkedList<double[]> linePoints; // array of arrays of [lat,lng] pairs
     private String startDateAndTime;
@@ -496,11 +497,7 @@ public class CaltopoClient {
         CaltopoClient client = ClientMap.get(remoteId);
         if (null == client) {
             client = new CaltopoClient(remoteId);
-
             ClientMap.put(remoteId, client);
-            ArchiveState();
-//            Log.i(TAG, String.format(Locale.US,
-//                    "CaltopoClient() mapped %s to a new client ", remoteId));
         }
         return client;
     }
@@ -768,7 +765,7 @@ public class CaltopoClient {
     public long unsavedMsgCount() {
         return WaypointTrack.UnsavedMsgCountForTrack(droneSpec.mappedId);
     }
-    public void CopyStringToClipboard(String message) {
+    public static void CopyStringToClipboard(String message) {
         ClipboardManager clippy = (ClipboardManager) AppContext.getSystemService(Context.CLIPBOARD_SERVICE);
         clippy.setPrimaryClip(ClipData.newPlainText("OpenDroneId", message));
     }
@@ -786,7 +783,7 @@ public class CaltopoClient {
      *
      * @return returns true once it's OK to start publishing tracks.
      */
-    public boolean caltopoMapIsUp() throws RuntimeException {
+    public boolean caltopoMapIsUp() throws RuntimeException, JSONException, InterruptedException {
         if (null == Csp || MapConfigChanged) {
             linePoints = new LinkedList<>();
             OpenMapOp = null;
@@ -838,56 +835,45 @@ public class CaltopoClient {
                 folderName = "Lines & Polygons";
             }
 
-            try {
-                JSONObject state = OpenMapOp.responseJson.getJSONObject("state");
-                JSONArray features = state.getJSONArray("features");
-                for (int i = 0; i < features.length(); i++) {
-                    JSONObject feature = features.getJSONObject(i);
-                    // Log.i(TAG, "Parsing returned feature:\n" + feature.toString(2));
-                    JSONObject prop = feature.getJSONObject("properties");
-                    String title = prop.getString("title");
-                    String classProp = prop.getString("class");
-                    if (FolderId == null && classProp.equals("Folder") && title.equals(folderName)) {
-                        // Found it - get it's ID
-                        FolderId = feature.getString("id");
+            JSONObject state = OpenMapOp.responseJson.getJSONObject("state");
+            JSONArray features = state.getJSONArray("features");
+            for (int i = 0; i < features.length(); i++) {
+                JSONObject feature = features.getJSONObject(i);
+                // Log.i(TAG, "Parsing returned feature:\n" + feature.toString(2));
+                JSONObject prop = feature.getJSONObject("properties");
+                String title = prop.getString("title");
+                String classProp = prop.getString("class");
+                if (FolderId == null && classProp.equals("Folder") && title.equals(folderName)) {
+                    // Found it - get it's ID
+                    FolderId = feature.getString("id");
 
-                        Log.i(TAG, String.format(Locale.US, "Found existing folder '%s' with id %s", folderName, FolderId));
-                        continue;
-                    }
-                    if ((classProp.equals("LiveTrack") || classProp.equals("Shape")) &&
-                            title.startsWith(droneSpec.mappedId)) {
-                        Log.i(TAG, String.format(Locale.US, "Found %s with drone prefix '%s'", classProp, title));
-                        if (title.length() > suffixIndex) {
-                            // skip the '-' hyphen
-                            String suffix = title.substring(suffixIndex);
-                            if (!suffix.isEmpty()) {
-                                int suffixVal = Integer.parseInt(suffix);
-                                if (suffixVal >= trackSuffix) {
-                                    trackSuffix = suffixVal + 1;
-                                }
+                    Log.i(TAG, String.format(Locale.US, "Found existing folder '%s' with id %s", folderName, FolderId));
+                    continue;
+                }
+                if ((classProp.equals("LiveTrack") || classProp.equals("Shape")) &&
+                        title.startsWith(droneSpec.mappedId)) {
+                    Log.i(TAG, String.format(Locale.US, "Found %s with drone prefix '%s'", classProp, title));
+                    if (title.length() > suffixIndex) {
+                        // skip the '-' hyphen
+                        String suffix = title.substring(suffixIndex);
+                        if (!suffix.isEmpty()) {
+                            int suffixVal = Integer.parseInt(suffix);
+                            if (suffixVal >= trackSuffix) {
+                                trackSuffix = suffixVal + 1;
                             }
-                        } else if (0 == trackSuffix) trackSuffix++;
-                    }
+                        }
+                    } else if (0 == trackSuffix) trackSuffix++;
                 }
-                if (0 == trackSuffix) {
-                    trackSuffix = 1;
-                }
-                Log.i(TAG, "trackSuffix after processing features:" + trackSuffix);
-            } catch (JSONException e) {
-                Log.i(TAG, "Error parsing existing map data:" + e + "\n  " +
-                        OpenMapOp.responseString());
             }
+            if (0 == trackSuffix) trackSuffix = 1;
+            Log.i(TAG, "trackSuffix after processing features:" + trackSuffix);
         }
 
         // Request the directory to be created if it wasn't found in the map dump
         if (null == FolderId) {
             if (null == FolderIdOp) {
-                try {
-                    FolderIdOp = Csp.addFolder(Ccstate.caltopoTrackFolder,
-                            true, true);
-                } catch (Exception e) {
-                    Log.e(TAG, "caltopoMapIsUp(): csp.addFolder raised: " + e);
-                }
+                FolderIdOp = Csp.addFolder(Ccstate.caltopoTrackFolder,
+                        true, true);
                 return false;
             } else if (!FolderIdOp.isDone()) return false;
 
@@ -900,11 +886,7 @@ public class CaltopoClient {
 
                     return false;
                 }
-                try {
-                    FolderId = FolderIdOp.id();
-                } catch (JSONException e) {
-                    ShowToast("caltopoMapIsUp(): folderIdOp.id() raised: " + e);
-                }
+                FolderId = FolderIdOp.id();
                 Log.i(TAG, String.format(Locale.US, "folderid for op %d is %s", FolderIdOp.opNum, FolderId));
             }
         }
@@ -946,10 +928,11 @@ public class CaltopoClient {
                         finishTrack();
                         return;
                     }
-                    // only send one waypoint at a time and verify succesful response before sending the next.
-                    point = linePoints.removeFirst();
-                    Log.i(TAG, "publishDirect(): adding waypoint to LiveTrack " + Ccstate.groupId + "-" + trackLabel);
-                    liveTrackOp = Csp.addLiveTrackPoint(Ccstate.groupId, trackLabel, point[0], point[1]);
+                    while (!linePoints.isEmpty()) {
+                        point = linePoints.removeFirst();
+                        Log.i(TAG, "publishDirect(): adding waypoint to LiveTrack " + Ccstate.groupId + "-" + trackLabel);
+                        liveTrackOp = Csp.addLiveTrackPoint(Ccstate.groupId, trackLabel, point[0], point[1]);
+                    }
                 }
             }
         }
@@ -973,9 +956,14 @@ public class CaltopoClient {
     }
 
     public boolean newWaypoint(double lat, double lng, long altitudeInMeters, long droneTimestampInSeconds) {
+        boolean droneTakingOff = false;
+        if (-1000 == altitudeInMeters) {
+            // -1000 is invalid value in open_drone_id - possibly associated with taking off.
+            droneTakingOff = true;
+//            Log.i(TAG, "XYZZY: drone is taking off.");
+        }
         boolean archived = WaypointTrack.AddWaypointForTrack(droneSpec.mappedId, lat, lng, altitudeInMeters, droneTimestampInSeconds);
         ClientClassState ccs = GetState();
-        long currentTimeInSec = (System.currentTimeMillis() / 1000);
 
         if (archived) {
             if (Ccstate.groupId.isEmpty()) {
@@ -986,12 +974,16 @@ public class CaltopoClient {
                 }
             }
 
-            // Then it is OK to publish this updated location
-            //     Log.i(TAG, String.format("submitting job: %s %f %f", droneSpec.mappedID, lat, lng));
             if (ccs.useDirectFlag && !ccs.mapId.isEmpty()) {
-                long idleDuration = currentTimeInSec - droneSpec.mostRecentTimeInSeconds;
-                if ((null != liveTrackOp) && (0 != droneSpec.mostRecentTimeInSeconds) &&
-                        (idleDuration >= GetNewTrackDelayInSeconds())) {
+                long idleDuration;
+                if (0 == droneSpec.mostRecentTimeInSeconds) {
+                    idleDuration = 0;
+                } else {
+                    idleDuration = droneTimestampInSeconds - droneSpec.mostRecentTimeInSeconds;
+                }
+
+                if ( (null != liveTrackOp) &&
+                        (droneTakingOff || (idleDuration > GetNewTrackDelayInSeconds())) ) {
                     Log.d(TAG, String.format(Locale.US,
                             "Finishing track for %s after %d seconds idle between waypoints.",
                             droneSpec.mappedId, idleDuration));
@@ -1001,15 +993,28 @@ public class CaltopoClient {
                 try {
                     publishDirect(lat, lng, altitudeInMeters);
                 } catch (Exception e) {
-                    Log.e(TAG, "publishDirect() raised:\n  " + e);
+                    String logstr = "publishDirect() raised:" + e +"\n  " +
+                            Arrays.toString(e.getStackTrace());
+                    Log.e(TAG, logstr);
+  //                  CopyStringToClipboard(logstr);
+                    ShowToast(logstr);  // FIXME: substitute copy(above) prior to candidate release.
                 }
             } else if (!Ccstate.groupId.isEmpty()){
-                publishLive(lat, lng);
+                try {
+                    publishLive(lat, lng);
+                } catch (Exception e) {
+                    String logstr = "publishLive() raised:" + e +"\n  " +
+                            Arrays.toString(e.getStackTrace());
+                    Log.e(TAG, logstr);
+//                    CopyStringToClipboard(logstr);
+                    ShowToast(logstr);  // FIXME: substitute copy(above) prior to candidate release.
+
+                }
             } else {
                 Log.i(TAG,"newWaypoint(): Ignoring waypoint - missing " + (ccs.useDirectFlag ? "mapId" : "groupId"));
             }
         }
-        droneSpec.mostRecentTimeInSeconds = currentTimeInSec;
+        droneSpec.mostRecentTimeInSeconds = droneTimestampInSeconds;
         return archived;
     }
 }

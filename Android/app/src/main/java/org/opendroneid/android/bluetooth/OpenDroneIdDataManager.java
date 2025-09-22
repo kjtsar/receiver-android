@@ -98,7 +98,6 @@ public class OpenDroneIdDataManager {
         CaltopoClient client = CaltopoClient.ClientForRemoteId(idStr);
         LocationData location = ac.getLocation();
         if (null != location) {
-            long altitudeInMeters = (long)location.getAltitudeGeodetic();
             long timestampInSeconds = (long)location.getLocationTimestamp();
             /* timestampInSeconds from UAS is for the current hour based on gps, so accurate
                w/in the current hour only.  Here's the problem: Rx UAS timestamp of 3599.9
@@ -132,8 +131,13 @@ public class OpenDroneIdDataManager {
             }
             double lat = location.getLatitude();
             double lng = location.getLongitude();
-            Log.i(TAG, String.format(Locale.US, "Processing new waypoint from %s on transport:%s, TimestampIn:%d, Altitude:%d at %.5f,%.5f",
+            long altitudeInMeters = (long)location.getAltitudeGeodetic();
+/*
+            Log.i(TAG, String.format(Locale.US,
+                    "Processing new waypoint from %s on transport:%s, " +
+                            "TimestampIn:%d, Altitude:%d at %.5f,%.5f",
                     idStr, transportType, timestampInSeconds, altitudeInMeters, lat, lng));
+ */
             client.newWaypoint(lat, lng, altitudeInMeters, timestampInSeconds);
         }
     }
