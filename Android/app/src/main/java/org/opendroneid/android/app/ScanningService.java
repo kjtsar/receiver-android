@@ -119,7 +119,12 @@ public class ScanningService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (null == mAppActivity) mAppActivity = DebugActivity.getDebugActivity();
+        if (null == mAppActivity) {
+            mAppActivity = DebugActivity.getDebugActivity();
+            if (null == mAppActivity) {
+                return START_REDELIVER_INTENT;
+            }
+        }
         Log.d(TAG, String.format(Locale.US, "onStartCommand(): mAppActivity 0x%x", mAppActivity.hashCode()));
 
 
