@@ -60,8 +60,9 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
      * @param newSpec Add the contents of newSpec to this spec.
      */
     public void mergeWithNew(CtDroneSpec newSpec) {
-//        Log.i(TAG, String.format(Locale.US, "Merging new dronespec:%s\n into existing:%s",
-//                newSpec.toString(), this.toString()));
+        CaltopoClient.CTInfo(TAG, String.format(Locale.US,
+                "Merging new dronespec:%s\n into existing:%s",
+                newSpec.toString(), this.toString()));
         // one exception is if the mappedId is same as remoteId (default)
         if (!this.remoteId.equals(this.mappedId)) {
             this.mappedId = newSpec.mappedId;

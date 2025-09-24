@@ -8,10 +8,13 @@ package org.opendroneid.android.app;
 
 import android.Manifest;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.documentfile.provider.DocumentFile;
 import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProvider;
 
+import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -64,6 +67,7 @@ import org.opendroneid.android.data.AircraftObject;
 import java.io.File;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.Locale;
 import java.util.Set;
@@ -95,7 +99,8 @@ public class DebugActivity extends AppCompatActivity {
     private static DebugActivity appActivity = null;
     public static DebugActivity getDebugActivity() {return appActivity;}
     public static Context getAppContext() {return appActivity.getApplicationContext();}
-    boolean initializedCalled;
+    private boolean initializedCalled;
+    private ArrayList <String>outstandingPermissionsList = new ArrayList<>();
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
@@ -115,10 +120,8 @@ public class DebugActivity extends AppCompatActivity {
     }
 
     private void checkBluetoothSupport(Menu menu) {
-        Object object = getSystemService(BLUETOOTH_SERVICE);
-        if (object == null)
-            return;
-        BluetoothAdapter bluetoothAdapter = ((android.bluetooth.BluetoothManager) object).getAdapter();
+        BluetoothAdapter bluetoothAdapter = BluetoothScanner.getBluetoothAdapter(this);
+        if (null == bluetoothAdapter) return;
 
         if (bluetoothAdapter.isLeCodedPhySupported()) {
             menu.findItem(R.id.coded_phy).setTitle(getString(R.string.coded_phy_supported));
@@ -218,11 +221,34 @@ public class DebugActivity extends AppCompatActivity {
         try {
             logger = new LogWriter(loggerFile);
         } catch (IOException e) {
-            Log.e(TAG, e.toString());
+            CaltopoClient.CTError(TAG, e.toString());
         }
     }
     public String getName() {
         return getApplication().getProcessName();
+    }
+    public void requestTurnOnBluetooth() {
+        ActivityResultLauncher enableBluetoothLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(), result -> {
+                    if (result.getResultCode() == Activity.RESULT_OK) {
+                        CaltopoClient.CTDebug(TAG, "requestTurnOnBluetooth(): Success");
+                    } else {
+                        CaltopoClient.CTDebug(TAG, "requestTurnOnBluetooth(): fail");
+                    }
+                }
+        );
+        Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+        enableBluetoothLauncher.launch(enableBtIntent);
+
+        BluetoothAdapter bluetoothAdapter = BluetoothScanner.getBluetoothAdapter(this);
+        if (bluetoothAdapter == null) {
+            CaltopoClient.CTError(TAG, "device doesn't support bluetooth.");
+        } else if (!bluetoothAdapter.isEnabled()) {
+            CaltopoClient.CTDebug(TAG, "Requesting enable bluetooth...");
+            requestTurnOnBluetooth();
+        } else {
+            CaltopoClient.CTDebug(TAG, "Bluetooth is enabled.");
+        }
     }
 
     @Override
@@ -233,6 +259,7 @@ public class DebugActivity extends AppCompatActivity {
             finish();
             return;
         }
+        appActivity = this;
         initializedCalled = false;
         setContentView(R.layout.activity_debug);
         mModel = new ViewModelProvider(this).get(AircraftViewModel.class);
@@ -245,45 +272,57 @@ public class DebugActivity extends AppCompatActivity {
         });
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            Log.d(TAG, "onCreate: Android 13");
+            CaltopoClient.CTDebug(TAG, "onCreate: Android 13");
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-                Log.d(TAG, "onCreate: Requesting NEARBY_WIFI_DEVICES");
-                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.NEARBY_WIFI_DEVICES}, Constants.REQUEST_NEARBY_WIFI_DEVICES_PERMISSION);
+                CaltopoClient.CTDebug(TAG, "onCreate: Requesting NEARBY_WIFI_DEVICES");
+                outstandingPermissionsList.add(Manifest.permission.NEARBY_WIFI_DEVICES);
             } else {
-                Log.d(TAG, "onCreate: NEARBY_WIFI_DEVICES granted.");
+                CaltopoClient.CTDebug(TAG, "onCreate: NEARBY_WIFI_DEVICES granted.");
             }
+        }
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            CaltopoClient.CTDebug(TAG, "onCreate: Requesting ACCESS_FINE_LOCATION");
+            outstandingPermissionsList.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        } else {
+            CaltopoClient.CTDebug(TAG, "onCreate: ACCESS_COARSE_LOCATION granted.");
         }
 
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            Log.d(TAG, "onCreate: Requesting ACCESS_FINE_LOCATION");
-            ActivityCompat.requestPermissions(this, new String[] {Manifest.permission.ACCESS_FINE_LOCATION }, Constants.FINE_LOCATION_PERMISSION_REQUEST_CODE);
+            CaltopoClient.CTDebug(TAG, "onCreate: Requesting ACCESS_FINE_LOCATION");
+            outstandingPermissionsList.add(Manifest.permission.ACCESS_FINE_LOCATION);
         } else {
-            Log.d(TAG, "onCreate: ACCESS_FINE_LOCATION granted.");
+            CaltopoClient.CTDebug(TAG, "onCreate: ACCESS_FINE_LOCATION granted.");
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Log.d(TAG, "onCreate: Android 12");
+            CaltopoClient.CTDebug(TAG, "onCreate: Android 12");
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                Log.d(TAG, "onCreate: Requesting BLUETOOTH_SCAN");
-                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.BLUETOOTH_SCAN}, Constants.REQUEST_BLUETOOTH_PERMISSION_SCAN);
+                CaltopoClient.CTDebug(TAG, "onCreate: Requesting BLUETOOTH_SCAN");
+                outstandingPermissionsList.add(Manifest.permission.BLUETOOTH_SCAN);
             } else {
-                Log.d(TAG, "onCreate: BLUETOOTH_SCAN granted");
+                CaltopoClient.CTDebug(TAG, "onCreate: BLUETOOTH_SCAN granted");
             }
 
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                Log.d(TAG, "onCreate: Requesting BLUETOOTH_CONNECT");
-                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.BLUETOOTH_CONNECT}, Constants.REQUEST_BLUETOOTH_PERMISSION_CONNECT);
+                CaltopoClient.CTDebug(TAG, "onCreate: Requesting BLUETOOTH_CONNECT");
+                outstandingPermissionsList.add(Manifest.permission.BLUETOOTH_CONNECT);
             } else {
-                Log.d(TAG, "onCreate: BLUETOOTH_CONNECT granted");
+                CaltopoClient.CTDebug(TAG, "onCreate: BLUETOOTH_CONNECT granted");
             }
         }
-        appActivity = this;
-        finalizeOnCreate();
-        initialize();
+        CaltopoClient.InitializeForActivityAndContext(this, getApplicationContext());
+        if (!outstandingPermissionsList.isEmpty()) {
+            String[] permArray = outstandingPermissionsList.toArray(new String[0]);
+            ActivityCompat.requestPermissions(this, permArray, Constants.REQUEST_BULK_PERMISSIONS);
+        } else {
+            finalizeOnCreate();
+            initialize();
+        }
     }
 
     private void finalizeOnCreate() {
-        Log.d(TAG, "finalizeOnCreate");
+        CaltopoClient.CTDebug(TAG, "finalizeOnCreate");
 
         WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         if (!wifiManager.isWifiEnabled()) {
@@ -298,24 +337,21 @@ public class DebugActivity extends AppCompatActivity {
             if (!bluetoothAdapter.isEnabled()) {
                 // Prompt user to turn on Bluetooth (logic continues in onActivityResult()).
                 try {
-                    Log.i(TAG, "finalizeOnCreate(): Requesting Bluetooth Enable.");
+                    CaltopoClient.CTDebug(TAG, "finalizeOnCreate(): Requesting Bluetooth Enable.");
                     Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
                     startActivity(enableBtIntent);
                 } catch (SecurityException se) {
-                    Log.e(TAG, String.format(Locale.US, "Not able to turn on bluetooth - %s", se));
+                    CaltopoClient.CTError(TAG, String.format(Locale.US, "Not able to turn on bluetooth - %s", se));
                 }
             }
         }
-        initialize();
-
         createNewLogfile();
     }
 
     private void initialize() {
         if (initializedCalled) return;
-        Log.d(TAG, "initialize()");
+        CaltopoClient.CTDebug(TAG, "initialize()");
         initializedCalled = true;
-        CaltopoClient.InitializeForActivityAndContext(this, getApplicationContext());
         String archivePathVal = CaltopoClient.GetArchivePath();
         if (null == archivePathVal) {
             CaltopoClient.QueryUserForArchiveDir();
@@ -352,36 +388,11 @@ public class DebugActivity extends AppCompatActivity {
                 }
             }
         };
-        Log.d(TAG, String.format(Locale.US, "onCreate(): Starting ScanningService from activity 0x%x", this.hashCode()));
+        CaltopoClient.CTDebug(TAG, String.format(Locale.US, "onCreate(): Starting ScanningService from activity 0x%x", this.hashCode()));
         Intent serviceIntent = new Intent(this , ScanningService.class);
         getApplicationContext().startForegroundService(serviceIntent);
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        Log.i(TAG, String.format(Locale.US, "onActivityResult(%d, %d)", requestCode, resultCode));
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == Constants.REQUEST_ENABLE_BT) {
-            if (resultCode == RESULT_OK) {
-                Log.i(TAG, "onActivityResult(): Granted REQUEST_ENABLE_BT");
-                initialize();
-            } else {
-                Log.e(TAG, "onActivityResult(): User declined to enable Bluetooth, exit the app.");
-                showToast(getString(R.string.bt_not_enabled_leaving));
-                forceStopApp();
-            }
-        } else if (requestCode == Constants.REQUEST_ENABLE_WIFI) {
-            WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-            if (wifiManager.isWifiEnabled()) {
-                Log.i(TAG, "onActivityResult(): Granted REQUEST_ENABLE_WIFI");
-                initialize();
-            } else if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                Log.d(TAG, "onActivityResult(): No ACCESS_COURSE_LOCATION... no big deal for RID2Caltopo...");
-            } else if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                Log.d(TAG, "onActivityResult(): No ACCESS_FINE_LOCATION - no big deal for RID2Caltopo...");
-            }
-        }
-    }
 
     public void addDeviceList() {
         FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
@@ -420,71 +431,40 @@ public class DebugActivity extends AppCompatActivity {
         handler.removeCallbacks(runnableCode);
         if (mFusedLocationClient != null)
             mFusedLocationClient.removeLocationUpdates(locationCallback);
-        Log.i(TAG, "onPause() archiving tracks...");
+        CaltopoClient.CTDebug(TAG, "onPause() archiving tracks...");
         archiveTracks();
         super.onPause();
     }
 
     public void archiveTracks() {
-        String archivePath = CaltopoClient.GetArchivePath();
-        if (null != archivePath) try {
-            Uri treeUri = Uri.parse(archivePath);
-            DocumentFile archiveDir = DocumentFile.fromTreeUri(this, treeUri);
-            if (null != archiveDir) {
-                WaypointTrack.ArchiveTracks(this, archiveDir);
-            }
+        try {
+            WaypointTrack.ArchiveTracks(this);
         } catch (Exception e) {
-            Log.e(TAG, String.format(Locale.US, "archiveTracks(%s) raised:\n  %s", archivePath, e));
+            CaltopoClient.CTError(TAG, "archiveTracks() raised:", e);
         }
-    }
-    public void requestLocationPermission(int requestCode) {
-        Log.d(TAG, "requestLocationPermission: request permission");
-
-        // Location permission has not been granted yet, request it.
-        PermissionUtils.requestPermission(this, requestCode,
-                Manifest.permission.ACCESS_FINE_LOCATION, false);
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
                                            @NonNull int[] grantResults) {
+
+        CaltopoClient.CTDebug(TAG, "In onRequestPermissionsResult()");
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        Log.d(TAG, String.format(Locale.US, "onRequestPermissionsResult(%d)", requestCode));
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (requestCode == Constants.FINE_LOCATION_PERMISSION_REQUEST_CODE) {
-                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                    Log.e(TAG, "onRequestPermissionsResult: Did not get ACCESS_FINE_LOCATION");
+        if (requestCode == Constants.REQUEST_BULK_PERMISSIONS) {
+            for (int i = 0; i < permissions.length; i++) {
+                int ix = outstandingPermissionsList.indexOf(permissions[i]);
+                outstandingPermissionsList.remove(ix);
+                if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
+                    CaltopoClient.CTError(TAG, "onRequestPermissionsResult: Did not get " + permissions[i]);
                 } else {
-                    Log.i(TAG, "onRequestPermissionsResult(): Received ACCESS_FINE_LOCATION");
+                    CaltopoClient.CTDebug(TAG, "onRequestPermissionsResult(): Received " + permissions[i]);
                 }
             }
+            finalizeOnCreate();
+            initialize();
+            return;
         }
-
-        if (requestCode == Constants.REQUEST_NEARBY_WIFI_DEVICES_PERMISSION) {
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-                Log.e(TAG, "onRequestPermissionsResult(): Did not get NEARBY_WIFI_DEVICES");
-            } else {
-                Log.d(TAG, "onRequestPermissionsResult(): REQUEST_NEARBY_WIFI_DEVICES_PERMISSION");
-            }
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (requestCode == Constants.REQUEST_BLUETOOTH_PERMISSION_SCAN) {
-                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                   Log.d(TAG, "onRequestPermissionsResult(): Did not get BLUETOOTH_SCAN");
-                } else {
-                    Log.d(TAG, "onRequestPermissionsResult(): REQUEST_BLUETOOTH_PERMISSION_SCAN");
-                }
-             }
-
-            if (requestCode == Constants.REQUEST_BLUETOOTH_PERMISSION_CONNECT) {
-                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                    Log.e(TAG, "onRequestPermissionsResult(): Did not get REQUEST_BLUETOOTH_PERMISSION_CONNECT");
-                } else {
-                    Log.d(TAG, "onRequestPermissionsResult(): received REQUEST_BLUETOOTH_PERMISSION_CONNECT.");
-                }
-            }
-        }
+        CaltopoClient.CTDebug(TAG, String.format(Locale.US, "onRequestPermissionsResult(%d)", requestCode));
     }
 
     public void showToast(String message) {
@@ -506,10 +486,10 @@ public class DebugActivity extends AppCompatActivity {
     @Override
     public void onDestroy() {
         if (this == appActivity) {
-            Log.i(TAG, "onDestroy() shutting down scanning service...");
+            CaltopoClient.CTDebug(TAG, "onDestroy() shutting down scanning service...");
             Intent serviceIntent = new Intent(this, ScanningService.class);
             stopService(serviceIntent);
-            Log.i(TAG, "onDestroy() archiving tracks...");
+            CaltopoClient.CTDebug(TAG, "onDestroy() archiving tracks...");
             archiveTracks();
             CaltopoClient.Shutdown();
             appActivity = null;

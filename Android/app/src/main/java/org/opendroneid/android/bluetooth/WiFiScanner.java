@@ -30,7 +30,6 @@ import android.net.wifi.aware.WifiAwareManager;
 import android.net.wifi.aware.WifiAwareSession;
 import android.os.Build;
 import android.os.SystemClock;
-import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
@@ -42,6 +41,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
+import org.opendroneid.android.data.CaltopoClient;
 import org.opendroneid.android.log.LogMessageEntry;
 import org.opendroneid.android.log.LogWriter;
 
@@ -82,11 +82,11 @@ public class WiFiScanner {
                             try {
                                 handleResult(scanResult);
                             } catch (Exception e) {
-                                Log.d(TAG, String.format("oSRA():handleResult() raised:\n  %s", e));
+                                CaltopoClient.CTError(TAG, "oSRA():handleResult() raised:\n", e);
                             }
                         }
                     } catch (SecurityException se) {
-                        Log.e(TAG, String.format("oSRA():handleResult() raised:\n  %s", se));
+                        CaltopoClient.CTError(TAG, "oSRA(): getScanResults() raised:\n", se);
                     }
                 }
             };
@@ -104,12 +104,11 @@ public class WiFiScanner {
                                 try {
                                     handleResult(scanResult);
                                 } catch (NoSuchFieldException | IllegalAccessException e) {
-                                    Log.d(TAG, String.format("oR():handleResult() raised:\n  %s", e));
+                                    CaltopoClient.CTError(TAG, "oR(): handleResult() raised:\n", e);
                                 }
                             }
                         } catch (SecurityException se) {
-                            Log.e(TAG, String.format("wifiManager.getScanResults() raised:\n  %s", se));
-
+                            CaltopoClient.CTError(TAG, "oR(): getScanResults() raised:\n", se);
                         }
                         // scan failure handling
                         scanFails++;
@@ -136,7 +135,7 @@ public class WiFiScanner {
             dataManager.receiveDataWiFiBeacon(arr, scanResult.BSSID, scanResult.BSSID.hashCode(),
                     scanResult.level, timeNano, logMessageEntry, transportType);
 
-            Log.i(TAG, "Beacon: " + scanResult.BSSID + ": " + Arrays.toString(arr));
+//            Log.i(TAG, "Beacon: " + scanResult.BSSID + ": " + Arrays.toString(arr));
             StringBuilder csvLog = logMessageEntry.getMessageLogEntry();
             if (logger != null)
                 logger.logBeacon(logMessageEntry.getMsgVersion(), timeNano, scanResult, arr, transportType, csvLog);
@@ -177,7 +176,7 @@ public class WiFiScanner {
     }
 
     public void startScan() {
-        Log.d(TAG, "Starting WiFi beacon scanning");
+        CaltopoClient.CTDebug(TAG, "Starting WiFi beacon scanning");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             wifiManager.registerScanResultsCallback(context.getMainExecutor(), scanResultsCallback);
         } else {
@@ -189,18 +188,18 @@ public class WiFiScanner {
         wifiAwareManager = (WifiAwareManager) context.getSystemService(Context.WIFI_AWARE_SERVICE);
         if (wifiAwareManager != null && wifiAwareManager.isAvailable()) {
             try {
-                Log.d(TAG, "Starting WiFi NaN scanning");
+                CaltopoClient.CTDebug(TAG, "Starting WiFi NaN scanning");
                 wifiAwareManager.attach(attachCallback, identityChangedListener, null);
             } catch (SecurityException se) {
-                Log.e(TAG, String.format("wifiAwareManager().attach() raised:\n  %s", se));
+                CaltopoClient.CTError(TAG, "wifiAwareManager().attach() raised:\n", se);
             } catch (Exception e) {
-                Log.e(TAG, String.format(Locale.US, "wifiAwareManager.attach() raised:\n %s", e));
+                CaltopoClient.CTError(TAG, "wifiAwareManager().attach() raised:\n", e);
             }
         }
     }
 
     public void stopScan() {
-        Log.d(TAG, "Stopping WiFi beacon scanning");
+        CaltopoClient.CTInfo(TAG, "Stopping WiFi beacon scanning");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             wifiManager.unregisterScanResultsCallback(scanResultsCallback);
         } else {
@@ -208,7 +207,7 @@ public class WiFiScanner {
         }
 
         if (wifiAwareManager != null && wifiAwareManager.isAvailable() && wifiAwareSession != null) {
-            Log.i(TAG, "WiFi NaN closing");
+            CaltopoClient.CTInfo(TAG, "WiFi NaN closing");
             wifiAwareSession.close();
         }
     }
@@ -229,31 +228,31 @@ public class WiFiScanner {
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 if (ActivityCompat.checkSelfPermission(context, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-                    Log.e(TAG, "onAttached: Missing NEARBY_WIFI_DEVICES permission");
+                    CaltopoClient.CTError(TAG,"onAttached: Missing NEARBY_WIFI_DEVICES permission");
                     return;
                 }
             }
 
             if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                Log.e(TAG, "onAttached: Missing ACCESS_FINE_LOCATION permission");
+                CaltopoClient.CTError(TAG, "onAttached: Missing ACCESS_FINE_LOCATION permission");
                 return;
             }
 
-            Log.d(TAG, "onAttached(): wifiAwareSession starting subscription.");
+            CaltopoClient.CTDebug(TAG,"onAttached(): wifiAwareSession starting subscription.");
             wifiAwareSession.subscribe(config, new DiscoverySessionCallback() {
                 @Override
                 public void onSubscribeStarted(@NonNull SubscribeDiscoverySession session) {
-                    Log.i(TAG, "onSubscribeStarted");
+                    CaltopoClient.CTInfo(TAG, "onSubscribeStarted");
                 }
 
                 @Override
                 public void onMessageReceived(PeerHandle peerHandle, byte[] message)
                 {
-                    Log.i(TAG, "onMessageReceived: " + message.length + ": " + Arrays.toString(message));
+                    CaltopoClient.CTInfo(TAG, "onMessageReceived: " + message.length + ": " + Arrays.toString(message));
                 }
                 @Override
                 public void onServiceDiscovered(PeerHandle peerHandle, byte[] serviceSpecificInfo, List<byte[]> matchFilter) {
-                    Log.i(TAG, "onServiceDiscovered: " + serviceSpecificInfo.length + ": " + Arrays.toString(serviceSpecificInfo));
+                    CaltopoClient.CTInfo(TAG, "onServiceDiscovered: " + serviceSpecificInfo.length + ": " + Arrays.toString(serviceSpecificInfo));
 
                     String transportType = "NAN";
                     LogMessageEntry logMessageEntry = new LogMessageEntry();
@@ -268,7 +267,7 @@ public class WiFiScanner {
 
                 @Override
                 public void onSessionConfigFailed() {
-                    Log.e(TAG, "onSessionConfigFailed()");
+                    CaltopoClient.CTError(TAG, "onSessionConfigFailed()");
 
                 }
             }, null);
@@ -276,7 +275,7 @@ public class WiFiScanner {
 
         @Override
         public void onAttachFailed() {
-            Log.w(TAG, "wifiAware onAttachFailed. Code to properly handle this must be added.");
+            CaltopoClient.CTError(TAG, "wifiAware onAttachFailed. Code to properly handle this must be added.");
         }
     };
 
@@ -287,7 +286,7 @@ public class WiFiScanner {
             int i = 0;
             for (byte b: mac)
                 macAddress[i++] = b;
-            Log.i(TAG, "identityChangedListener: onIdentityChanged. MAC: " + Arrays.toString(macAddress));
+            CaltopoClient.CTInfo(TAG, "identityChangedListener: onIdentityChanged. MAC: " + Arrays.toString(macAddress));
         }
     };
 

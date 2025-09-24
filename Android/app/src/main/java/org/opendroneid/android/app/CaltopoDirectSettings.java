@@ -122,7 +122,7 @@ public class CaltopoDirectSettings extends DialogFragment implements TextWatcher
 
         folderText = settingsView.findViewById(R.id.ctFolderEditText);
         folderText.addTextChangedListener(this);
-        String folder = CaltopoClient.getTrackFolderName();
+        String folder = CaltopoClient.GetTrackFolderName();
         if (null == folder || folder.isEmpty()) {
             folder = UNSPEC_VAL_STR;
         }

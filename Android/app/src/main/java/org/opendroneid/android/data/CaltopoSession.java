@@ -125,8 +125,6 @@ public class CaltopoSession {
 	private final CtLineProperty CtLinePropertyDefault = new CtLineProperty();
 	private static CaltopoSessionConfig Config;
 	private static final String CALTOPO_API_V1 = "/api/v1/map/";
-	private static boolean SessionDebugFlag = false;
-
 	// instance variables:
     private String mapId;
 
@@ -298,9 +296,7 @@ public class CaltopoSession {
 				} else {
 					op.goodResponse = false;
 				}
-				if (SessionDebugFlag) {
-					Log.i(TAG, "BgSendRequest(): Normal Completion:" + op.toString());
-				}
+				CaltopoClient.CTInfo(TAG, "BgSendRequest(): Normal Completion:" + op.toString());
 
 			} catch (UnknownHostException e) {
 				// this happens when no network connection, so retry after some delay period.
@@ -311,8 +307,7 @@ public class CaltopoSession {
 			} catch (Exception e) {
 				op.goodResponse = false;
 				op.response = "Exception raised during request:\n  " + e;
-				Log.e(TAG, "Exception raised during request:\n  '" + e +
-						"' \n  op:\n" + op);
+				CaltopoClient.CTError(TAG, "Exception raised during request:", e);
 			}
 		} while (retry);
 		return op;

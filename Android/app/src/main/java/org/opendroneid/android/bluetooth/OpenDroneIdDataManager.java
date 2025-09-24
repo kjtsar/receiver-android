@@ -66,10 +66,10 @@ public class OpenDroneIdDataManager {
         OpenDroneIdParser.Message<?> message =
                 OpenDroneIdParser.parseData(data, 1, timeNano, logMessageEntry, receiverLocation);
         if (message == null) {
-            Log.e(TAG, "Not able to parse NaN data.");
+            CaltopoClient.CTError(TAG, "Not able to parse NaN data.");
             return;
         }
-        Log.d(TAG, "Caltopo: Wireless NaN for NAN ID: " + peerHash);
+        CaltopoClient.CTDebug(TAG, "Caltopo: Wireless NaN for NAN ID: " + peerHash);
         receiveData(timeNano, "NaN ID: " + peerHash, peerHash, 0, message, logMessageEntry, transportType);
     }
 
@@ -90,7 +90,7 @@ public class OpenDroneIdDataManager {
         // remove nulls and any other garbage from idstr:
         String idStr = rawStr.replaceAll("[^\\.A-Z0-9]", "");
         if (idStr.isEmpty()) {
-            Log.w(TAG, String.format(Locale.US, "updateCaltopo(): Ignoring message with invalid id from mac:0x%x transport:%s",
+            CaltopoClient.CTDebug(TAG, String.format(Locale.US, "updateCaltopo(): Ignoring message with invalid id from mac:0x%x transport:%s",
                     ac.getMacAddress(), transportType));
             return;
         }
@@ -115,7 +115,7 @@ public class OpenDroneIdDataManager {
                 long epochSecondHr;
                 timestampInSeconds = timestampInSeconds / 10;
                 if (timestampInSeconds >= (60 * 60)) {
-                    Log.wtf(TAG, String.format(Locale.US, "Received invalid TimestampInSeconds:%d", timestampInSeconds));
+                    CaltopoClient.CTError(TAG, String.format(Locale.US, "Received invalid TimestampInSeconds:%d", timestampInSeconds));
                     timestampInSeconds = timestampInSeconds % (60 * 60);
                 }
                 if (timestampInSeconds > (59*60)) {
@@ -132,13 +132,13 @@ public class OpenDroneIdDataManager {
             double lat = location.getLatitude();
             double lng = location.getLongitude();
             long altitudeInMeters = (long)location.getAltitudeGeodetic();
-/*
+            /*
             Log.i(TAG, String.format(Locale.US,
                     "Processing new waypoint from %s on transport:%s, " +
                             "TimestampIn:%d, Altitude:%d at %.5f,%.5f",
                     idStr, transportType, timestampInSeconds, altitudeInMeters, lat, lng));
- */
-            client.newWaypoint(lat, lng, altitudeInMeters, timestampInSeconds);
+             */
+            client.newWaypoint(lat, lng, altitudeInMeters, timestampInSeconds, transportType);
         }
     }
 
@@ -251,7 +251,7 @@ public class OpenDroneIdDataManager {
             if (type2 == Identification.IdTypeEnum.None || type2 == data.getIdType()) {
                 ac.identification2.setValue(data);
             } else {
-                Log.i(TAG, "Discarded Basic ID message of type: " + data.getIdType().toString() +
+                CaltopoClient.CTInfo(TAG, "Discarded Basic ID message of type: " + data.getIdType().toString() +
                         ". Already have " + type1.toString() + " and " + type2.toString());
             }
         }

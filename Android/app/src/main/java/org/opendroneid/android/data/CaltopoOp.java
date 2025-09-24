@@ -22,7 +22,6 @@ import androidx.annotation.NonNull;
  */
 public class CaltopoOp implements Future <CaltopoOp> {
     private static final String TAG = "CaltopoOp";
-	private static final boolean DEBUG = false;
     public CaltopoSession cts;
     public long opNum;
     public long queuedTimestampMsec;
@@ -51,7 +50,7 @@ public class CaltopoOp implements Future <CaltopoOp> {
 		this.cts = cts;
 		opNum = ++lastOpNum;
 		queuedTimestampMsec = System.currentTimeMillis();
-		if (DEBUG) Log.i(TAG, String.format(Locale.US, "creating op %d", opNum));
+		CaltopoClient.CTInfo(TAG, String.format(Locale.US, "creating op %d", opNum));
     }
 
     public long roundTripTimeInMsec() {
@@ -79,14 +78,14 @@ public class CaltopoOp implements Future <CaltopoOp> {
 			try {
 				jsonStringRep = payload.toString(2);
 			} catch (JSONException e) {
-				Log.e(TAG, "payload.toString() raised:\n" + e);
+				CaltopoClient.CTError(TAG, "payload.toString() raised:", e);
 			}
 		}
 		if (responseJson != null) {
 			try {
 				responseJsonStringRep = responseJson.toString(2);
 			} catch (JSONException e) {
-				Log.e(TAG, "responseJson.toString() raised:\n" + e);
+				CaltopoClient.CTError(TAG, "responseJson.toString() raised:", e);
 			}
 		}
 		return String.format(Locale.US,
@@ -159,7 +158,7 @@ public class CaltopoOp implements Future <CaltopoOp> {
 
 
     public void finalize() {
-		if (DEBUG) Log.i(TAG, String.format(Locale.US, "destroying op %d", this.opNum));
+		CaltopoClient.CTInfo(TAG, String.format(Locale.US, "destroying op %d", this.opNum));
     }
 
     // Future interface implementation:

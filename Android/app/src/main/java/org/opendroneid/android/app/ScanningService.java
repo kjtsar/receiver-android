@@ -9,7 +9,6 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.IBinder;
 import android.os.Process;
-import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.ServiceCompat;
@@ -18,6 +17,7 @@ import org.opendroneid.android.R;
 import org.opendroneid.android.bluetooth.BluetoothScanner;
 import org.opendroneid.android.bluetooth.OpenDroneIdDataManager;
 import org.opendroneid.android.bluetooth.WiFiScanner;
+import org.opendroneid.android.data.CaltopoClient;
 import org.opendroneid.android.log.LogWriter;
 
 import java.io.FileDescriptor;
@@ -43,12 +43,12 @@ public class ScanningService extends Service {
     public void startScanning() {
         if (null == mAppActivity) mAppActivity = DebugActivity.getDebugActivity();
         if (scanning) {
-            Log.d(TAG, String.format(Locale.US, "startScanning(): ignoring start request while running."));
+            CaltopoClient.CTError(TAG, "startScanning(): ignoring start request while running.");
             return;
         }
         scanning = true;
         LogWriter logger = mAppActivity.getLogger();
-        Log.d(TAG, String.format(Locale.US, "startScanning(): ScanningService 0x%x", this.hashCode()));
+        CaltopoClient.CTDebug(TAG, String.format(Locale.US, "startScanning(): ScanningService 0x%x", this.hashCode()));
         wiFiScanner = new WiFiScanner(getApplicationContext(), mDataManager, logger);
         wiFiScanner.startScan();
 
@@ -59,10 +59,10 @@ public class ScanningService extends Service {
 
     public void stopScanning() {
         if (!scanning) {
-            Log.d(TAG, String.format(Locale.US, "stopScanning(): Ignoring request to stop when idle"));
+            CaltopoClient.CTError(TAG, "stopScanning(): Ignoring request to stop when idle");
             return;
         }
-        Log.d(TAG, String.format(Locale.US, "stopScanning(): ScanningService 0x%x", this.hashCode()));
+        CaltopoClient.CTDebug(TAG, String.format(Locale.US, "stopScanning(): ScanningService 0x%x", this.hashCode()));
         wiFiScanner.stopScan();
         btScanner.stopScan();
         mDataManager = null;
@@ -72,19 +72,21 @@ public class ScanningService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        Log.d(TAG, String.format(Locale.US, "onCreate(): Starting ScanningService 0x%x", this.hashCode()));
+        CaltopoClient.CTDebug(TAG, String.format(Locale.US,
+                "onCreate(): Starting ScanningService:0x%x in pid:%d",
+                this.hashCode(), Process.myPid()));
 
         mAppActivity = DebugActivity.getDebugActivity();
 
         if (null == mAppActivity) {
-            Log.e(TAG, "onCreate() with null DebugActivity.");
+            CaltopoClient.CTError(TAG, "onCreate() with null DebugActivity.");
             return;
         }
         mDataManager = mAppActivity.getDataManager();
         if (null == mDataManager) {
-            Log.e(TAG, "onCreate() with null DataManager.");
+            CaltopoClient.CTError(TAG, "onCreate() with null DataManager.");
         }
-        Log.d(TAG, String.format(Locale.US, "onCreate(): appActivity:0x%x dataManager: 0x%x",
+        CaltopoClient.CTDebug(TAG, String.format(Locale.US, "onCreate(): appActivity:0x%x dataManager: 0x%x",
                 mAppActivity.hashCode(), mDataManager.hashCode()));
 
         NotificationChannel serviceChannel = new NotificationChannel(CHANNEL_ID,
@@ -100,7 +102,8 @@ public class ScanningService extends Service {
 
     @Override
     public void onDestroy() {
-        Log.d(TAG, String.format(Locale.US, "onDestroy(): ScanningService 0x%x", this.hashCode()));
+        CaltopoClient.CTDebug(TAG, String.format(Locale.US,
+                "onDestroy(): ScanningService 0x%x", this.hashCode()));
         stopScanning();
         super.onDestroy();
         Process.killProcess(Process.myPid());
@@ -125,7 +128,7 @@ public class ScanningService extends Service {
                 return START_REDELIVER_INTENT;
             }
         }
-        Log.d(TAG, String.format(Locale.US, "onStartCommand(): mAppActivity 0x%x", mAppActivity.hashCode()));
+        CaltopoClient.CTDebug(TAG, String.format(Locale.US, "onStartCommand(): mAppActivity 0x%x", mAppActivity.hashCode()));
 
 
         /* FIXME: No matter what I've tried here, Android will fire up a new instance of the
@@ -156,12 +159,12 @@ public class ScanningService extends Service {
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
-        Log.i(TAG, "onTaskRemoved()");
+        CaltopoClient.CTDebug(TAG, "onTaskRemoved()");
         super.onTaskRemoved(rootIntent);
     }
     @Override
     public void onTimeout(int startId, int fgsType) {
-        Log.i(TAG, "onTimeout()");
+        CaltopoClient.CTDebug(TAG, "onTimeout()");
         super.onTimeout(startId, fgsType);
     }
     @Override

@@ -13,6 +13,7 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.util.Log;
 
+import androidx.annotation.NonNull;
 import androidx.documentfile.provider.DocumentFile;
 
 /*
@@ -64,7 +65,6 @@ public class WaypointTrack {
 
 	public static int WaypointCount = 0;
 	private static final String TAG = "WaypointTrack";
-
 	private static final boolean PromiscuousMode = false;
 
 	// map trackLabel to WaypointTrack.
@@ -80,14 +80,14 @@ public class WaypointTrack {
 	// lastTimestampInSeconds - there can be multiple sources for timestamps - discard earlier duplicates.
 	public long lastTimestampInSeconds;
 
+	// N.B. Relying on caller to provide unique (within a few days) trackLabel as of 22Sep2025:
 	public WaypointTrack(String trackLabel) {
 		SimpleDateFormat sdf = new SimpleDateFormat("ddMMMyyyy-HHmmss", Locale.US);
 		startTimeStr = sdf.format(new Date());
 		this.trackLabel = trackLabel;
 		this.coordinates = new JSONArray();
 		this.lastLat = this.lastLng = 0.0;
-		Log.d(TAG, String.format("AddWaypointForTrack(%s):%s Starting new track.", trackLabel, startTimeStr));
-
+		CaltopoClient.CTDebug(TAG, String.format("AddWaypointForTrack(%s): Starting new track.", trackLabel));
 	}
 
 	// Rough distance measurement based on Equirectangular Distance Approximation.
@@ -119,35 +119,27 @@ public class WaypointTrack {
 
 	// returns true if waypoint meets requirements and is added to track.
 	public static boolean AddWaypointForTrack(String trackLabel, double lat, double lng,
-											  long altAboveLaunchInMeters, long timestampInSec) {
+											  long altAboveLaunchInMeters, long timestampInSec,
+											  String transportType) {
 		WaypointTrack track = TrackMap.get(trackLabel);
 		if (null == track) {
 			track = new WaypointTrack(trackLabel);
 			TrackMap.put(trackLabel, track);
 		}
-		return track.addWaypoint(lat, lng, altAboveLaunchInMeters, timestampInSec);
+		return track.addWaypoint(lat, lng, altAboveLaunchInMeters, timestampInSec, transportType);
 	}
 
-	public static void ArchiveTracks(Context ctxt, DocumentFile archiveDir) {
+	public static void ArchiveTracks(Context ctxt) {
 		if (0 == WaypointCount) {
-			Log.e(TAG, "ArchiveTracks(): no waypoints recorded");
+			CaltopoClient.CTError(TAG, "ArchiveTracks(): no waypoints recorded");
 			return;
 		}
-
-		SimpleDateFormat sdf = new SimpleDateFormat("ddMMMyyyy", Locale.US);
-		String dirpath = "tracks-" + sdf.format(new Date());
-		DocumentFile todaysDir = archiveDir.findFile(dirpath);
-		if (null == todaysDir) {
-			todaysDir = archiveDir.createDirectory(dirpath);
-			if (null == todaysDir) {
-				Log.e(TAG, String.format("Not able to create '%s'", archiveDir));
-			}
-		}
-
+		DocumentFile todaysArchiveDir = CaltopoClient.GetTodaysTrackDir();
+		if (null == todaysArchiveDir) return;
 		for (Map.Entry<String, WaypointTrack> map : TrackMap.entrySet()) {
 		//	String Key = map.getKey();
 			WaypointTrack track = map.getValue();
-			track.archive(ctxt, todaysDir);
+			track.archive(ctxt, todaysArchiveDir);
 		}
 	}
 
@@ -157,8 +149,8 @@ public class WaypointTrack {
 			Log.i(TAG, "archive(): No new coordinates to archive.");
 			return;
 		}
-		String filename = trackLabel + "-" + startTimeStr + ".json";
-		Log.i(TAG, String.format(Locale.US, "archive(%s): writing %d coordinates.", filename, numCoords));
+		CaltopoClient.CTDebug(TAG, String.format(Locale.US, "archive(%s): writing %d coordinates.",
+				trackLabel, numCoords));
 
 		try {
 			JSONObject jo = new JSONObject();
@@ -182,12 +174,12 @@ public class WaypointTrack {
 			joTop.put("features", jaFeatures);
 			if (0 != lastArchiveLength) {
 				// FIXME: better to rename/move, then delete after the new file is written
-				DocumentFile dataFilepath = archiveDir.findFile(filename);
+				DocumentFile dataFilepath = archiveDir.findFile(trackLabel);
 				if (null != dataFilepath) {
 					dataFilepath.delete();
 				}
 			}
-			DocumentFile dataFilepath = archiveDir.createFile("application/geo+json", filename);
+			DocumentFile dataFilepath = archiveDir.createFile("application/geo+json", trackLabel);
 
 			try {
 				ContentResolver resolver = ctxt.getContentResolver();
@@ -197,19 +189,19 @@ public class WaypointTrack {
 				os.close();
 				lastArchiveLength = numCoords;
 			} catch (IOException e) {
-				Log.e(TAG, String.format("archive(%s):%s raised:\n%s.", dataFilepath,
-						filename, e));
+				CaltopoClient.CTError(TAG, String.format("archive(%s):%s raised:\n%s.", dataFilepath,
+						trackLabel, e));
 			}
-			Log.d(TAG, String.format("archive(%s):%s.", archiveDir, filename));
+			CaltopoClient.CTDebug(TAG, String.format("archive(%s):%s.", archiveDir, trackLabel));
 		} catch (JSONException e) {
-			Log.e(TAG, String.format("archive(%s):%s raised:\n%s.", archiveDir,
-					filename, e));
+			CaltopoClient.CTError(TAG, String.format("archive(%s):%s raised:\n%s.", archiveDir,
+					trackLabel, e));
 		}
 	}
 
 	// returns true if waypoint added
 	public boolean addWaypoint(double lat, double lng,
-							   long altInMeters, long timestampInSeconds) {
+							   long altInMeters, long timestampInSeconds, String transportType) {
 		long distanceInFeet = 0;
 
 		if ((lastTimestampInSeconds != 0) && (timestampInSeconds <= lastTimestampInSeconds)) {
@@ -230,8 +222,7 @@ public class WaypointTrack {
 		}
 
 		if (lat == 0.0 && lng == 0.0) {
-			// FIXME: Does this mean the drone is on the ground?
-//			Log.d(TAG, String.format("FIXME/XYZZY: addWaypoint(%s):  lat/lng both zero.", trackLabel));
+			CaltopoClient.CTInfo(TAG, String.format("addWaypoint(%s):  lat/lng both zero.", trackLabel));
 			return false;
 		}
 
@@ -247,11 +238,13 @@ public class WaypointTrack {
 		long deltaTimeInSeconds = (0 == lastTimestampInSeconds) ? 0 : timestampInSeconds - lastTimestampInSeconds;
 		lastTimestampInSeconds = timestampInSeconds;
 		if (PromiscuousMode) {
-			Log.d(TAG, String.format("addWaypoint(%s): promiscuous mode (any change) %d seconds, adding %.7f,%.7f",
-					trackLabel,	deltaTimeInSeconds, lat, lng));
+			CaltopoClient.CTDebug(TAG, String.format(Locale.US,
+					"addWaypoint(%s/%s): promiscuous mode (any change) %d seconds, adding %.7f,%.7f",
+					trackLabel, transportType, deltaTimeInSeconds, lat, lng));
 		} else {
-			Log.d(TAG, String.format("addWaypoint(%s): delta %d feet after %d seconds, adding %.7f,%.7f", trackLabel,
-					distanceInFeet, deltaTimeInSeconds, lat, lng));
+			CaltopoClient.CTDebug(TAG, String.format(Locale.US,
+					"addWaypoint(%s/%s): delta %d feet after %d seconds, adding %.7f,%.7f",
+					trackLabel, transportType, distanceInFeet, deltaTimeInSeconds, lat, lng));
 		}
 		return true;
 	}

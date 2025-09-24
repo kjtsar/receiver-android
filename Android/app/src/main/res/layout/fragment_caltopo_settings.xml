@@ -19,7 +19,7 @@
             android:layout_height="wrap_content">
 
             <TextView
-                android:id="@+id/textView"
+                android:id="@+id/CtConfigTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:inputType="none"
@@ -45,7 +45,7 @@
                 android:textOff="Live"
                 android:textOn="@string/ct_directButton"
                 app:layout_constraintBottom_toBottomOf="parent"
-                app:layout_constraintStart_toEndOf="@+id/textView"
+                app:layout_constraintStart_toEndOf="@+id/CtConfigTitle"
                 app:layout_constraintTop_toTopOf="parent" />
 
             <Button
@@ -152,7 +152,7 @@
 
         <androidx.constraintlayout.widget.ConstraintLayout
             android:layout_width="match_parent"
-            android:layout_height="50dp">
+            android:layout_height="60dp">
 
             <TextView
                 android:id="@+id/minChangeLabel"
@@ -189,7 +189,7 @@
 
         <androidx.constraintlayout.widget.ConstraintLayout
             android:layout_width="match_parent"
-            android:layout_height="50dp">
+            android:layout_height="60dp">
 
             <TextView
                 android:id="@+id/newTrackDelayInSeconds"
@@ -227,7 +227,7 @@
 
         <androidx.constraintlayout.widget.ConstraintLayout
             android:layout_width="match_parent"
-            android:layout_height="50dp">
+            android:layout_height="60dp">
 
             <TextView
                 android:id="@+id/maxAgeInSecondsLabel"
