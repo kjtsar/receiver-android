@@ -67,12 +67,11 @@ import org.opendroneid.android.app.DebugActivity;
  * Persistent state management for CaltopoClient
  */
 class ClientClassState implements Serializable {
-    private static final long SerialVersionUID = 15L; // Serializable version.
+    private static final long SerialVersionUID = 16L; // Serializable version.
     public long minDistanceInFeet;
     public String groupId;
     public String archivePath;
     public Hashtable<String, CtDroneSpec> droneSpecTable;  // Table to map remoteIDs to their data
-    public boolean caltopoUpdatesEnabled;
     public String caltopoTrackFolder;
     public CaltopoSessionConfig caltopoSessionConfig;
     public String mapId;
@@ -85,7 +84,6 @@ class ClientClassState implements Serializable {
         minDistanceInFeet = CaltopoClient.MIN_DISTANCE_IN_FEET;
         groupId = "";
         archivePath = null;
-        caltopoUpdatesEnabled = false;
         caltopoTrackFolder = "Drone Tracks";
         caltopoSessionConfig = null;
         mapId = "";
@@ -123,11 +121,11 @@ class ClientClassState implements Serializable {
 
         return String.format(Locale.US,
                 "vers:'%d', minDist:'%d' ft, groupId:'%s', mapId:'%s'\n" +
-                        "newTrackDelayInSec:%d, maxDisplayAgeInSec:%d, caltopoUpdatesEnabled:%s,\n" +
+                        "newTrackDelayInSec:%d, maxDisplayAgeInSec:%d, \n " +
                         "archivePath:%s, \n caltopoTrackFolder: '%s', caltopoDomainAndPort:%s, " +
                         "teamId: '%s', credId: '%s' credSecret: '%s', ht: %s",
                 SerialVersionUID, minDistanceInFeet, groupId, mapId,
-                newTrackDelayInSeconds, maxDisplayAgeInSeconds, caltopoUpdatesEnabled ? "true" : "false",
+                newTrackDelayInSeconds, maxDisplayAgeInSeconds,
                 (archivePath == null) ? "<undefined>" : archivePath,
                 caltopoTrackFolder, domainAndPort, teamId, credId,
                 credSecret, CaltopoClient.DroneSpecStringRep(droneSpecTable));
@@ -175,7 +173,10 @@ public class CaltopoClient {
     private CaltopoOp liveTrackOp;
     private final String remoteId;
     private CtDroneSpec droneSpec;
+    private String trackGroupId; // groupId used to start current track
+    private String trackMappedId; // mappedId used to start current track
     private LinkedList<double[]> linePoints; // array of arrays of [lat,lng] pairs
+    private boolean outstandingLabelChangeRequest;
 
     public CaltopoClient(String rid) throws RuntimeException {
         ClientClassState ccs = GetState();
@@ -188,11 +189,11 @@ public class CaltopoClient {
         if (null == droneSpec) {
             droneSpec = new CtDroneSpec(rid);
             ccs.droneSpecTable.put(rid, droneSpec);
-            ArchiveState();
+            ArchiveState("dronespec changed for " + rid);
         }
     }
 
-    public static void BumpLoggingLevel() {
+    public static String BumpLoggingLevel() {
         DebugLevel++;
         if (DebugLevel > DebugLevelInfo) DebugLevel = DebugLevelError;
         String name = switch (DebugLevel) {
@@ -201,17 +202,22 @@ public class CaltopoClient {
             case DebugLevelInfo -> "Info";
             default -> "<undefined>";
         };
-        ShowToast("Logging level changed to: " + name);
+        return name;
     }
 
     public static void CTLog(String type, String tag, String msg) {
+        if (null == AppActivity || null == AppContext) {
+            // attempt no logging to file without app context (caused by
+            // logging from ScanningService during screen rotate).
+            return;
+        }
         ClientClassState ccs = GetState();
         if (BytesWrittenToDebugOutputStream >= MAX_SIZE_DEBUG_OUTPUT) return;
 
         if (null == ccs.archivePath || null == AppContext) return;
         if (null == DebugOutputStream) try {
             DocumentFile todaysArchiveDir = GetTodaysTrackDir();
-            String filepath = "RID2CaltopoLog" + DateTimestampString();
+            String filepath = "Log" + DateTimestampString();
             if (null != todaysArchiveDir) {
                 DocumentFile dataFilepath = todaysArchiveDir.createFile("text/plain", filepath);
                 ContentResolver resolver = AppContext.getContentResolver();
@@ -224,7 +230,7 @@ public class CaltopoClient {
         }
 
         try {
-            msg = String.format("%s@%.3f:%s  %s\n\n  ", type,
+            msg = String.format(Locale.US, "%s@%.3f:%s  %s\n\n  ", type,
                     (double)System.currentTimeMillis()/1000.0, tag, msg);
             byte[] bytes = msg.getBytes();
             BytesWrittenToDebugOutputStream += bytes.length;
@@ -306,12 +312,12 @@ public class CaltopoClient {
                 if (null == todaysDir) {
                     todaysDir = archiveDir.createDirectory(dirpath);
                     if (null == todaysDir) {
-                        CTError(TAG, String.format("GetTodaysTrackDir(): Not able to create '%s'", archiveDir));
+                        Log.e(TAG, String.format("GetTodaysTrackDir(): Not able to create '%s'", archiveDir));
                     } else {
-                        CTDebug(TAG, String.format("GetTodaysTrackDir(): Created '%s'", archiveDir));
+                        Log.d(TAG, String.format("GetTodaysTrackDir(): Created '%s'", archiveDir));
                     }
                 } else {
-                    CTDebug(TAG, String.format("GetTodaysTrackDir(): found existing '%s'", archiveDir));
+                    Log.d(TAG, String.format("GetTodaysTrackDir(): found existing '%s'", archiveDir));
                 }
             }
         } catch (Exception e) {
@@ -345,7 +351,7 @@ public class CaltopoClient {
         if (stateChanged) {
             MapConfigChanged = true;
             ccs.caltopoTrackFolder = folderName;
-            ArchiveState();
+            ArchiveState( "Caltopo Track Folder changed.");
         }
     }
 
@@ -363,9 +369,10 @@ public class CaltopoClient {
         ClientClassState ccs = GetState();
         mapid = mapid.trim().replaceAll("[^a-zA-Z0-9]", "");
         if (!mapid.equals(ccs.mapId)) {
+
             MapConfigChanged = true;
             ccs.mapId = mapid;
-            ArchiveState();
+            ArchiveState("mapId changed to " + mapid);
         }
         return ccs.mapId;
     }
@@ -380,7 +387,7 @@ public class CaltopoClient {
         if (ccs.useDirectFlag != flag) {
             MapConfigChanged = true;
             ccs.useDirectFlag = flag;
-            ArchiveState();
+            ArchiveState("useDirectChanged to " + flag);
         }
     }
 
@@ -395,19 +402,21 @@ public class CaltopoClient {
         return ccs.caltopoSessionConfig;
     }
 
-    public static void SetCaltopoSessionConfig(@NonNull CaltopoSessionConfig cfg)
+    // returns true if changes archived.
+    public static boolean SetCaltopoSessionConfig(@NonNull CaltopoSessionConfig cfg)
             throws RuntimeException {
         if (!CaltopoSessionConfig.sniffTest(cfg)) {
             throw new RuntimeException("CaltopoSessionConfig.setCaltopoConfig() bad spec.");
         }
 
         ClientClassState ccs = GetState();
-
         if (!CaltopoSessionConfig.configSpecsAreEqual(cfg, ccs.caltopoSessionConfig)) {
             ccs.caltopoSessionConfig = cfg;
             MapConfigChanged = true;
-            ArchiveState();
+            ArchiveState( "SessionConfigChanged to " + cfg);
+            return true;
         }
+        return false;
     }
 
     public static JSONObject ReadJsonFile(Uri uri) {
@@ -450,6 +459,7 @@ public class CaltopoClient {
 
     public static void readCredentialsFileContent(JSONObject json)
             throws JSONException {
+        boolean changedFlag = false;
         String teamId = json.optString("team_id", null);
         String credentialId = json.optString("credential_id", null);
         String credentialSecret = json.optString("credential_secret", null);
@@ -465,7 +475,6 @@ public class CaltopoClient {
         if (null != groupid) SetGroupId(groupid);
 
         SetCaltopoSessionConfig(new CaltopoSessionConfig(teamId, credentialId, credentialSecret));
-        ArchiveState();
     }
     public static void readRidmapFileContent(JSONObject json) throws JSONException {
         JSONArray mapJson;
@@ -503,7 +512,7 @@ public class CaltopoClient {
                         "Illegal duplicate remoteId '%s' at offset %d - file contents ignored.", rid, i));
             }
             CTDebug(TAG, String.format(Locale.US, "Adding dronespec:%s", ds));
-            mergedTable.put(ds.remoteId, ds);
+            mergedTable.put(ds.getRemoteId(), ds);
         }
 
         // Be sure to include any existing maps that weren't mentioned in the file:
@@ -514,7 +523,7 @@ public class CaltopoClient {
             }
         }
         ccs.droneSpecTable = mergedTable;
-        ArchiveState();
+        ArchiveState("merged ridmap");
     }
 
     public static String LoadConfigFile(Uri uri) {
@@ -667,6 +676,7 @@ public class CaltopoClient {
     // can return null if no stored state available.
     private static ClientClassState RestoreState() {
         ClientClassState ccs;
+        if (null == AppContext) return null;
         try {
             FileInputStream fis = AppContext.openFileInput(MyStateFileName);
             ObjectInputStream ois = new ObjectInputStream(fis);
@@ -688,6 +698,9 @@ public class CaltopoClient {
     private static ClientClassState GetState() {
         if (null == Ccstate) {
             AppContext = DebugActivity.getAppContext();
+            if (null == AppContext) {
+                Log.d(TAG, "GetState() called before AppContext initialized.");
+            }
             ClientClassState ccs = RestoreState();
             if (null == ccs) ccs = new ClientClassState();
             Ccstate = ccs;
@@ -696,14 +709,14 @@ public class CaltopoClient {
         return Ccstate;
     }
 
-    private static void ArchiveState() {
+    private static void ArchiveState(String reason) {
         if (null != Ccstate) try {
             FileOutputStream fos = AppContext.openFileOutput(MyStateFileName, 0);
             ObjectOutputStream oos = new ObjectOutputStream(fos);
             oos.writeObject(Ccstate);
             oos.flush();
             oos.close();
-            CTDebug(TAG, "ArchiveState():%s" + Ccstate);
+            CTDebug(TAG, String.format(Locale.US, "ArchiveState(%s):\n%s", reason, Ccstate));
 
             //  Files.move(Paths.get(MyTemporaryStateFileName), Paths.get(MyStateFileName), StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
@@ -713,7 +726,6 @@ public class CaltopoClient {
     }
 
     /**
-     *
      *
      * @param ageInSeconds   use zero to get all entries.
      * @return Return an array of CtDroneSpecs for drones that have been seen
@@ -771,20 +783,22 @@ public class CaltopoClient {
         }
         ClientClassState ccs = GetState();
         ccs.archivePath = path;
-        ArchiveState();
+        ArchiveState("archivePath changed.");
     }
 
     public static String SetGroupId(String gid) {
         ClientClassState ccs = GetState();
+        String oldGid = ccs.groupId;
+
         if (gid != null && !gid.isEmpty()) {
-            ccs.caltopoUpdatesEnabled = true;
             ccs.groupId = gid.replaceAll("[^A-Z0-9]", "");
         } else {
-            ccs.caltopoUpdatesEnabled = false;
             ccs.groupId = "";
         }
-        ArchiveState(); // save any time there is a chg.
-        WarnMissingGroupId = false;
+        if (!oldGid.equals(ccs.groupId)) {
+            WarnMissingGroupId = false;
+            ArchiveState("groupId changed."); // save any time there is a chg.
+        }
         return ccs.groupId;
     }
 
@@ -813,7 +827,7 @@ public class CaltopoClient {
     @NonNull
     public String toString() {
         return String.format(Locale.US,
-                "  rid:%s, mapped:%s", remoteId, droneSpec.mappedId);
+                "  rid:%s, mapped:%s", remoteId, droneSpec.getMappedId());
     }
 
     public static long SetNewTrackDelayInSeconds(long delayInSeconds) {
@@ -825,7 +839,7 @@ public class CaltopoClient {
 
         if (ccs.newTrackDelayInSeconds != delayInSeconds) {
             ccs.newTrackDelayInSeconds = delayInSeconds;
-            ArchiveState();
+            ArchiveState("newTrackDelayInSeconds changed");
         }
         return ccs.newTrackDelayInSeconds;
     }
@@ -834,7 +848,7 @@ public class CaltopoClient {
         ClientClassState ccs = GetState();
         if (ccs.maxDisplayAgeInSeconds != delayInSeconds) {
             ccs.maxDisplayAgeInSeconds = delayInSeconds;
-            ArchiveState();
+            ArchiveState("maxDisplayAgeInSeconds changed.");
         }
         return ccs.maxDisplayAgeInSeconds;
     }
@@ -846,55 +860,24 @@ public class CaltopoClient {
         }
         if (ccs.minDistanceInFeet != minDistance) {
             ccs.minDistanceInFeet = minDistance;
-            ArchiveState();
+            ArchiveState("minDistanceInFeet changed");
         }
         return ccs.minDistanceInFeet;
+    }
+
+    public static String DateTimestampString() {
+        // Yes, we really want the timestamp first to make it easier to spot
+        // the latest track in caltopo's tiny feature window.
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HHmmssLLLdd");
+        return LocalDateTime.now().format(formatter);
     }
 
     public CtDroneSpec getDroneSpec() {
         return droneSpec;
     }
 
-    public CtDroneSpec setDroneSpec(@NonNull CtDroneSpec newSpec) {
-        boolean specChanged = false;
-        if (droneSpec.sameAs(newSpec)) {
-            CTDebug(TAG, "setDroneSpec(): No change - ignoring.");
-            return newSpec;
-        }
-
-        // You can't change remoteId - that's sacred
-        if (!droneSpec.remoteId.equals(newSpec.remoteId)) {
-            CTDebug(TAG, "setDroneSpec(): Can't change remoteId - ignoring.");
-            return droneSpec;
-        }
-
-        if (null != newSpec.mappedId && !newSpec.mappedId.isEmpty() &&
-                !droneSpec.mappedId.equals(newSpec.mappedId)) {
-            specChanged = true;
-        }
-        if (null == newSpec.org) newSpec.org = "";
-        else if (!newSpec.org.equals(droneSpec.org)) specChanged = true;
-
-        if (null == newSpec.owner) newSpec.owner = "";
-        else if (!newSpec.owner.equals(droneSpec.owner)) specChanged = true;
-
-        if (null == newSpec.model) newSpec.model = "";
-        else if (!newSpec.model.equals(droneSpec.model)) specChanged = true;
-
-        if (specChanged) {
-            ClientClassState ccs = GetState();
-            CTDebug(TAG, String.format(Locale.US,
-                            "droneSpec for client %s changing from:  %s  \nto:%s",
-                            remoteId, droneSpec, newSpec));
-            droneSpec = newSpec;
-            ccs.droneSpecTable.put(remoteId, newSpec);
-            ArchiveState();
-        }
-        return newSpec;
-    }
-
     public String newTrackLabel() {
-        return droneSpec.mappedId + "_" + DateTimestampString();
+        return droneSpec.getMappedId() + "_" + DateTimestampString();
     }
 
     public void finishTrack(@NonNull String reason) {
@@ -906,7 +889,8 @@ public class CaltopoClient {
             trackLabel = newTrackLabel;
             liveTrackOp = null;
         } else {
-            CTDebug(TAG, "Request to finish non-existent track.");
+            trackLabel = null;
+            CTDebug(TAG, "Request to finish non-existent track.  " + reason);
         }
     }
 
@@ -931,7 +915,7 @@ public class CaltopoClient {
             CTError(TAG, "openConnection() raised:", e);
             ExecutorPool.shutdown();
             ClientClassState ccs = GetState();
-            ccs.caltopoUpdatesEnabled = false; // stop attempts to send msgs to caltopo.
+            SetGroupId(""); // prevent new attempts til problem resolved.
         }
     }
 
@@ -960,13 +944,14 @@ public class CaltopoClient {
      *
      * @return returns true once it's OK to start publishing tracks.
      */
-    public boolean caltopoMapIsUp() throws RuntimeException, JSONException, InterruptedException {
+    public boolean caltopoMapIsUp(String mapId) throws RuntimeException, JSONException, InterruptedException {
         if (null == Csp || MapConfigChanged) {
             linePoints = new LinkedList<>();
             OpenMapOp = null;
             FolderIdOp = null;
             FolderId = null;
             liveTrackOp = null;
+            trackLabel = null;
             MapConfigChanged = false;
             MapDumpedToLog = false;
 
@@ -983,10 +968,10 @@ public class CaltopoClient {
             CTInfo(TAG, "caltopoMapIsUp() created session.");
         }
 
-        if (null == OpenMapOp && Ccstate.mapId != null && !Ccstate.mapId.isEmpty()) {
+        if (null == OpenMapOp && mapId != null && !mapId.isEmpty()) {
             try {
-                CTDebug(TAG, String.format(Locale.US, "Opening map '%s'", Ccstate.mapId));
-                OpenMapOp = Csp.openMap(Ccstate.mapId);
+                CTDebug(TAG, String.format(Locale.US, "Opening map '%s'", mapId));
+                OpenMapOp = Csp.openMap(mapId);
             } catch (Exception e) {
                 CTError(TAG, "caltopoMapIsUp(): csp.openMap() raised:", e);
             }
@@ -997,7 +982,7 @@ public class CaltopoClient {
         }
         if (OpenMapOp.fail()) {
             ShowToast(String.format(Locale.US, "Not able to open map '%s':\n  %s",
-                    GetMapId(), OpenMapOp.responseString()));
+                    mapId, OpenMapOp.responseString()));
             SetMapId("");
             return false;
         } else if (!MapDumpedToLog) {
@@ -1048,7 +1033,7 @@ public class CaltopoClient {
                 if (FolderIdOp.fail()) {
                     ShowToast(String.format(Locale.US,
                             "Could not create folder in map '%s' - check mapId/permissions:\n  %s",
-                            GetMapId(), FolderIdOp.responseString()));
+                            mapId, FolderIdOp.responseString()));
                     return false;
                 }
                 FolderId = FolderIdOp.id();
@@ -1057,13 +1042,8 @@ public class CaltopoClient {
         }
         return true;
     }
-    public static String DateTimestampString() {
-        // Yes, we really want the timestamp first to make it easier to spot
-        // the latest track in caltopo's tiny feature window.
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HHmmssLLLdd");
-        return LocalDateTime.now().format(formatter);
-    }
-    public void publishDirect(double lat, double lng, long altitudeInMeters)
+
+    public void publishDirect(double lat, double lng, long altitudeInMeters, String mapId, String groupId)
             throws JSONException, RuntimeException, InterruptedException {
 
         if (null == linePoints) linePoints = new LinkedList<>();
@@ -1072,58 +1052,96 @@ public class CaltopoClient {
         double[] point = {lat, lng};
         linePoints.add(point);
 
-        if (caltopoMapIsUp()) {
+        if (caltopoMapIsUp(mapId)) {
             CTInfo(TAG, "publishDirect() map is up.");
+            if (groupId.isEmpty() || (null == trackLabel) || trackLabel.isEmpty()) {
+                CTDebug(TAG, "publishDirect() - map is up, but groupId/label missing - this should have been caught by caller.");
+                return;
+            }
             // start sending our point list to caltopo if it seems to be up and running:
             if (null != FolderId ) {
                 CTInfo(TAG, "publishDirect() we have a folderId.");
                 if (null == liveTrackOp) {
                     String description = String.format(Locale.US,
-                            "org:%s, model:%s, owner:%s", droneSpec.org, droneSpec.model, droneSpec.owner);
+                            "org:%s, model:%s, owner:%s", droneSpec.getOrg(), droneSpec.getModel(), droneSpec.getOwner());
                     CTDebug(TAG, String.format(Locale.US, "publishDirect(%s-%s): Starting LiveTrack.",
-                            Ccstate.groupId, trackLabel));
-                    liveTrackOp = Csp.startLiveTrack(Ccstate.groupId, trackLabel, FolderId, description, null);
+                            groupId, trackLabel));
+                    liveTrackOp = Csp.startLiveTrack(groupId, trackLabel, FolderId, description, null);
                 }
                 if (liveTrackOp.isDone()) {
                     if (liveTrackOp.fail()) {
-                        if (!WarnLiveTrackFailed)
+                        if (!WarnLiveTrackFailed) {
                             ShowToast(String.format(Locale.US, "Not able to open/write LiveTrack for group:'%s-%s':\n  %s",
-                                    Ccstate.groupId, trackLabel, liveTrackOp.responseString()));
-                        WarnLiveTrackFailed = true;
+                                    groupId, trackLabel, liveTrackOp.responseString()));
+                            WarnLiveTrackFailed = true;
+                        }
                         finishTrack("Not able to open/write LiveTrack");
                         return;
                     }
                     while (!linePoints.isEmpty()) {
                         point = linePoints.removeFirst();
                         CTDebug(TAG, String.format(Locale.US, "publishDirect(%s-%s): adding %.7f,%.7f to LiveTrack ",
-                                Ccstate.groupId, trackLabel, point[0], point[1]));
-                        liveTrackOp = Csp.addLiveTrackPoint(Ccstate.groupId, trackLabel, point[0], point[1]);
+                                groupId, trackLabel, point[0], point[1]));
+                        liveTrackOp = Csp.addLiveTrackPoint(groupId, trackLabel, point[0], point[1]);
                     }
                 }
             }
         }
     }
 
-    public void publishLive(double lat, double lng) {
-        if (Ccstate.caltopoUpdatesEnabled) try {
+    public void publishLive(double lat, double lng, String groupId) {
+        try {
             if (null == ExecutorPool) {
                 ExecutorPool = Executors.newFixedThreadPool(ThreadPoolSize);
             }
             ExecutorPool.submit(() -> {
-                bgPublishLive(Ccstate.groupId, droneSpec.mappedId, lat, lng);
+                bgPublishLive(groupId, droneSpec.getMappedId(), lat, lng);
             });
         } catch (Exception e) {
             CTError(TAG, "executorPool.submit() raised:", e);
             if (null != ExecutorPool) {
                 ExecutorPool.shutdown();
             }
-            Ccstate.caltopoUpdatesEnabled = false; // stop attempts to send msgs to caltopo.
+            SetGroupId(""); // prevent further messages to caltopo til problem resolved.
+        }
+    }
+
+    public void userResponseForLabelChange(CtDroneSpec droneSpec, String existingLabel, boolean permitChange) {
+        String msg = "userResponseForLabelChange:" + permitChange;
+        CTDebug(TAG,msg);
+        outstandingLabelChangeRequest = false;
+        if (permitChange) {
+            finishTrack(msg);
+        } else {
+            droneSpec.setMappedId(existingLabel);
         }
     }
 
     public boolean newWaypoint(double lat, double lng, long altitudeInMeters, long droneTimestampInSeconds, String transportType) {
         boolean droneTakingOff = false;
-        if (null == trackLabel) trackLabel = newTrackLabel();
+        boolean useDirectFlag = GetUseDirectFlag();
+        String mapId = GetMapId();
+        String groupId = GetGroupId();
+
+        if (null == liveTrackOp) {
+            if (null == trackLabel) trackLabel = newTrackLabel();
+            trackGroupId = groupId;
+            trackMappedId = droneSpec.getMappedId();
+        }
+
+        if (null != trackGroupId && !trackGroupId.equals(groupId)) {
+            finishTrack("newWaypoint(): User changed groupId");
+        }
+
+        if (null != trackMappedId && !trackMappedId.equals(droneSpec.getMappedId())) {
+            // we have an active track the user is trying to change the label on,
+            // so make sure it's intentional.
+            if (!outstandingLabelChangeRequest) {
+                outstandingLabelChangeRequest = true;
+                DebugActivity.ConfirmActiveTrackLabelChange(this, droneSpec, trackMappedId);
+            }
+        }
+
         if (-1000 == altitudeInMeters) {
             // -1000 is invalid value in open_drone_id - possibly associated with taking off.
             droneTakingOff = true;
@@ -1132,48 +1150,48 @@ public class CaltopoClient {
                     trackLabel, transportType, lat, lng));
         }
         boolean archived = WaypointTrack.AddWaypointForTrack(trackLabel, lat, lng, altitudeInMeters, droneTimestampInSeconds, transportType);
-        ClientClassState ccs = GetState();
-
         if (archived) {
             CTInfo(TAG, "newWaypoint() archived.");
-            if (Ccstate.groupId.isEmpty()) {
-                if (!WarnMissingGroupId) {
-                    ShowToast("Can't forward waypoint to caltopo - 'groupId' not specified in Caltopo Config panel.");
-                    WarnMissingGroupId = true;
+
+            if (useDirectFlag && !mapId.isEmpty()) {
+                if (groupId.isEmpty()) {
+                    if (!WarnMissingGroupId) {
+                        ShowToast("Can't forward waypoint to caltopo - 'groupId' not specified in Caltopo Config panel.");
+                        WarnMissingGroupId = true;
+                    }
                     return archived;
                 }
-            }
-
-            if (ccs.useDirectFlag && !ccs.mapId.isEmpty()) {
                 long idleDuration;
                 if (0 == droneSpec.mostRecentTimeInSeconds) {
                     idleDuration = 0;
                 } else {
                     idleDuration = droneTimestampInSeconds - droneSpec.mostRecentTimeInSeconds;
                 }
-
                 if ( (null != liveTrackOp) &&
                         (droneTakingOff || (idleDuration > GetNewTrackDelayInSeconds())) ) {
                     String msg = String.format(Locale.US,
-                            "Finishing track for %s after %d seconds idle between waypoints.",
-                            trackLabel, idleDuration);
+                            "Finishing track for %s after %d seconds idle between waypoints. takingOff:%s",
+                            trackLabel, idleDuration, droneTakingOff);
                     CTDebug(TAG, msg);
                     finishTrack(msg);
+                    return true;
                 }
 
                 try {
-                    publishDirect(lat, lng, altitudeInMeters);
+                    publishDirect(lat, lng, altitudeInMeters, mapId, groupId);
                 } catch (Exception e) {
                     CTError(TAG, "publishDirect() raised:", e);
                 }
-            } else if (!Ccstate.groupId.isEmpty()){
+            } else if (!groupId.isEmpty()) {
                 try {
-                    publishLive(lat, lng);
+                    publishLive(lat, lng, groupId);
                 } catch (Exception e) {
                     CTError(TAG, "publishLive() raised:", e);
                 }
+            } else if (mapId.isEmpty()){
+                CTDebug(TAG,"newWaypoint(): Ignoring waypoint - missing mapId.");
             } else {
-                CTDebug(TAG,"newWaypoint(): Ignoring waypoint - missing " + (ccs.useDirectFlag ? "mapId" : "groupId"));
+                CTDebug(TAG,"newWaypoint(): Ignoring waypoint - missing groupId");
             }
         }
         droneSpec.mostRecentTimeInSeconds = droneTimestampInSeconds;

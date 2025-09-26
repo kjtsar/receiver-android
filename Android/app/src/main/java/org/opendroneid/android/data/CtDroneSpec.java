@@ -13,11 +13,12 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
     private static final long Version = 1L;
     private static final String TAG = "CtDroneSpec";
 
-    public String remoteId;
-    public String mappedId;   /* The track label prefix assigned to drone */
-    public String org;
-    public String owner;
-    public String model; /* This is the concise text description of the drone. */
+    private final String remoteId;
+    private String mappedId;   /* The track label prefix assigned to drone */
+
+    private String org;
+    private String owner;
+    private String model; /* This is the concise text description of the drone. */
     public long mostRecentTimeInSeconds; /* timestamp of most recent packet received */
 
     public CtDroneSpec() throws RuntimeException {
@@ -53,6 +54,24 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
         if (null == ownerIn) this.owner = "";
         else this.owner = ownerIn;
     }
+
+    public String setMappedId(@NonNull String newMappedId) {
+        String newStr = newMappedId.replaceAll("[^a-zA-Z0-9]", "");
+        if (!newStr.isEmpty()) {
+            mappedId = newStr;
+        }
+        return mappedId;
+    }
+
+    public String getRemoteId() { return remoteId;}
+    public String getMappedId() { return mappedId;}
+    public String getOrg() { return org;}
+    public String setOrg(String newVal) { return org = newVal;}
+    public String getModel() { return model;}
+    public String setModel(String newVal) { return model = newVal;}
+    public String getOwner() { return owner;}
+    public String setOwner(String newVal) { return owner = newVal;}
+
 
     /** merge a new dronespec into this spec.
      *  Don't override anything other than the default mappedId.

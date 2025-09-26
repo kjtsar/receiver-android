@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:orientation="vertical">
 
-<HorizontalScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<HorizontalScrollView
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
@@ -24,14 +29,13 @@
                 android:layout_height="wrap_content"
                 android:inputType="none"
                 android:text="CaltopoCfg: "
-                android:textAlignment="center"
+                android:textAlignment="textStart"
                 android:textAppearance="@style/Details.Heading"
                 android:textSize="20sp"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintHorizontal_bias="0.5"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent"
-                tools:layout_editor_absoluteY="11dp" />
+                app:layout_constraintTop_toTopOf="parent"/>
 
 
             <ToggleButton
@@ -69,6 +73,22 @@
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintStart_toEndOf="@+id/ct_saveButton"
                 app:layout_constraintTop_toTopOf="parent" />
+
+
+            <TextView
+                android:id="@+id/CtInfo"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:inputType="none"
+                android:text=""
+                android:textAlignment="textStart"
+                android:textSize="14sp"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintStart_toEndOf="@+id/ct_closeButton"
+                app:layout_constraintTop_toTopOf="parent"/>
+
+
+
         </androidx.constraintlayout.widget.ConstraintLayout>
 
 
@@ -307,7 +327,7 @@
 
             <TextView
                 android:id="@+id/ctRidlabel"
-                android:layout_width="175dp"
+                android:layout_width="200dp"
                 android:layout_height="match_parent"
                 android:clickable="false"
                 android:inputType="none"
@@ -323,7 +343,7 @@
 
             <TextView
                 android:id="@+id/ctMidlabel"
-                android:layout_width="150dp"
+                android:layout_width="180dp"
                 android:layout_height="match_parent"
                 android:clickable="false"
                 android:inputType="none"
@@ -339,7 +359,7 @@
 
             <TextView
                 android:id="@+id/ctUSMsgCountLabel"
-                android:layout_width="wrap_content"
+                android:layout_width="75dp"
                 android:layout_height="match_parent"
                 android:clickable="false"
                 android:inputType="none"
@@ -423,3 +443,4 @@
         </ScrollView>
     </LinearLayout>
 </HorizontalScrollView>
+</ScrollView>

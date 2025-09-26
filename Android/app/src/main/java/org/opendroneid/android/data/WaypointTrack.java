@@ -81,7 +81,7 @@ public class WaypointTrack {
 	public long lastTimestampInSeconds;
 
 	// N.B. Relying on caller to provide unique (within a few days) trackLabel as of 22Sep2025:
-	public WaypointTrack(String trackLabel) {
+	public WaypointTrack(@NonNull String trackLabel) {
 		SimpleDateFormat sdf = new SimpleDateFormat("ddMMMyyyy-HHmmss", Locale.US);
 		startTimeStr = sdf.format(new Date());
 		this.trackLabel = trackLabel;
@@ -118,7 +118,7 @@ public class WaypointTrack {
 	}
 
 	// returns true if waypoint meets requirements and is added to track.
-	public static boolean AddWaypointForTrack(String trackLabel, double lat, double lng,
+	public static boolean AddWaypointForTrack(@NonNull String trackLabel, double lat, double lng,
 											  long altAboveLaunchInMeters, long timestampInSec,
 											  String transportType) {
 		WaypointTrack track = TrackMap.get(trackLabel);
@@ -137,7 +137,6 @@ public class WaypointTrack {
 		DocumentFile todaysArchiveDir = CaltopoClient.GetTodaysTrackDir();
 		if (null == todaysArchiveDir) return;
 		for (Map.Entry<String, WaypointTrack> map : TrackMap.entrySet()) {
-		//	String Key = map.getKey();
 			WaypointTrack track = map.getValue();
 			track.archive(ctxt, todaysArchiveDir);
 		}

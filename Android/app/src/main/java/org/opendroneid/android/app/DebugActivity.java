@@ -8,22 +8,17 @@ package org.opendroneid.android.app;
 
 import android.Manifest;
 
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.documentfile.provider.DocumentFile;
+import androidx.appcompat.app.AlertDialog;
 import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProvider;
 
-import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.location.Location;
-import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -55,10 +50,10 @@ import com.google.android.gms.location.Priority;
 import com.google.android.material.snackbar.Snackbar;
 
 import org.opendroneid.android.Constants;
-import org.opendroneid.android.PermissionUtils;
 import org.opendroneid.android.R;
 import org.opendroneid.android.bluetooth.BluetoothScanner;
 import org.opendroneid.android.data.CaltopoClient;
+import org.opendroneid.android.data.CtDroneSpec;
 import org.opendroneid.android.data.WaypointTrack;
 import org.opendroneid.android.log.LogWriter;
 import org.opendroneid.android.bluetooth.OpenDroneIdDataManager;
@@ -85,12 +80,16 @@ public class DebugActivity extends AppCompatActivity {
 
     public static final String SHARED_PREF_NAME = "DebugActivity";
     public static final String SHARED_PREF_ENABLE_LOG = "EnableLog";
-   private MenuItem mMenuLogItem;
+
+    private static boolean RestartingFlag = false;
+
+    private MenuItem mMenuLogItem;
+
 
 //    private AircraftMapView mMapView;
 
-    private File loggerFile;
-    private LogWriter logger;
+    private static File loggerFile;
+    private static LogWriter logger;
 
     private Handler handler;
     private Runnable runnableCode;
@@ -98,7 +97,9 @@ public class DebugActivity extends AppCompatActivity {
     public LogWriter getLogger() {return logger;}
     private static DebugActivity appActivity = null;
     public static DebugActivity getDebugActivity() {return appActivity;}
-    public static Context getAppContext() {return appActivity.getApplicationContext();}
+    public static Context getAppContext() {
+        return (null != appActivity) ? appActivity.getApplicationContext() : null;
+    }
     private boolean initializedCalled;
     private ArrayList <String>outstandingPermissionsList = new ArrayList<>();
 
@@ -216,17 +217,19 @@ public class DebugActivity extends AppCompatActivity {
     }
 
     private void createNewLogfile() {
+        if (null != loggerFile) return;
         loggerFile = getLoggerFileDir(getName());
 
         try {
             logger = new LogWriter(loggerFile);
         } catch (IOException e) {
-            CaltopoClient.CTError(TAG, e.toString());
+            CaltopoClient.CTError(TAG, "createNewLogfile(): ", e);
         }
     }
     public String getName() {
         return getApplication().getProcessName();
     }
+    /*
     public void requestTurnOnBluetooth() {
         ActivityResultLauncher enableBluetoothLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -250,17 +253,21 @@ public class DebugActivity extends AppCompatActivity {
             CaltopoClient.CTDebug(TAG, "Bluetooth is enabled.");
         }
     }
-
+*/
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         if (appActivity != null) {
-            /* prevent ScanningService's PendingIntent tap from starting a new instance. */
-            finish();
-            return;
+            CaltopoClient.CTDebug(TAG, "onCreate() with an existing activity.");
+            if (appActivity != this) {
+                RestartingFlag = true;
+                /* prevent ScanningService's PendingIntent tap from starting a new instance. */
+                CaltopoClient.CTDebug(TAG, "onCreate() restarting with new activity.");
+            }
         }
         appActivity = this;
         initializedCalled = false;
+
         setContentView(R.layout.activity_debug);
         mModel = new ViewModelProvider(this).get(AircraftViewModel.class);
 
@@ -278,6 +285,12 @@ public class DebugActivity extends AppCompatActivity {
                 outstandingPermissionsList.add(Manifest.permission.NEARBY_WIFI_DEVICES);
             } else {
                 CaltopoClient.CTDebug(TAG, "onCreate: NEARBY_WIFI_DEVICES granted.");
+            }
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                CaltopoClient.CTDebug(TAG, "onCreate: Requesting POST_NOTIFICATIONS");
+                outstandingPermissionsList.add(Manifest.permission.POST_NOTIFICATIONS);
+            } else {
+                CaltopoClient.CTDebug(TAG, "onCreate: POST_NOTIFICATIONS granted.");
             }
         }
 
@@ -388,9 +401,11 @@ public class DebugActivity extends AppCompatActivity {
                 }
             }
         };
-        CaltopoClient.CTDebug(TAG, String.format(Locale.US, "onCreate(): Starting ScanningService from activity 0x%x", this.hashCode()));
-        Intent serviceIntent = new Intent(this , ScanningService.class);
-        getApplicationContext().startForegroundService(serviceIntent);
+        if (!RestartingFlag) {
+            CaltopoClient.CTDebug(TAG, String.format(Locale.US, "onCreate(): Starting ScanningService from activity 0x%x", this.hashCode()));
+            Intent serviceIntent = new Intent(this, ScanningService.class);
+            getApplicationContext().startForegroundService(serviceIntent);
+        }
     }
 
 
@@ -468,10 +483,7 @@ public class DebugActivity extends AppCompatActivity {
     }
 
     public void showToast(String message) {
-        ClipboardManager clippy = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        clippy.setPrimaryClip(ClipData.newPlainText("OpenDroneId", message));
-        message = message + "\n  (above text copied to clipboard).";
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.R)
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.R)
             Toast.makeText(getBaseContext(), message, Toast.LENGTH_LONG).show();
         else {
             Snackbar snackbar = Snackbar.make(findViewById(android.R.id.content).getRootView(), message, Snackbar.LENGTH_LONG);
@@ -483,17 +495,93 @@ public class DebugActivity extends AppCompatActivity {
         }
     }
 
+    public static void ConfirmActiveTrackLabelChange(CaltopoClient client, CtDroneSpec droneSpec, String existingLabel) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(getDebugActivity());
+
+        builder.setTitle("Change active track label");
+        builder.setMessage(String.format(Locale.US,"Change Label From:'%s' to '%s'",
+                existingLabel, droneSpec.getMappedId()));
+
+        // Positive button
+        builder.setPositiveButton("Yes", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                CaltopoClient.CTDebug(TAG, String.format(Locale.US, "User confirmed change track label From:'%s' to '%s'",
+                        existingLabel, droneSpec.getMappedId()));
+                client.userResponseForLabelChange(droneSpec, existingLabel,true);
+                dialog.dismiss();
+            }
+        });
+
+        // Negative button
+        builder.setNegativeButton("No", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                // User clicked "No", dismiss the dialog
+                CaltopoClient.CTDebug(TAG, "User cancelled track label change.");
+                client.userResponseForLabelChange(droneSpec, existingLabel, false);
+                dialog.dismiss();
+            }
+        });
+
+        // Create and show the AlertDialog
+        AlertDialog alertDialog = builder.create();
+        alertDialog.show();
+
+    }
+    private void confirmUserWishesToExit() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+
+        builder.setTitle("Exit Application");
+        builder.setMessage("Are you sure you want to exit?");
+
+        // Positive button
+        builder.setPositiveButton("Yes", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                CaltopoClient.CTDebug(TAG, "User confirmed intention to exit.");
+                finish();
+            }
+        });
+
+        // Negative button
+        builder.setNegativeButton("No", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                // User clicked "No", dismiss the dialog
+                CaltopoClient.CTDebug(TAG, "User cancelled exit.");
+
+                dialog.dismiss();
+                Toast.makeText(DebugActivity.this, "Exit cancelled", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        // Create and show the AlertDialog
+        AlertDialog alertDialog = builder.create();
+        alertDialog.show();
+    }
+
+    @Override
+    public void onBackPressed() {
+        CaltopoClient.CTDebug(TAG, "onBackButtonPressed()");
+        confirmUserWishesToExit();
+    }
+
     @Override
     public void onDestroy() {
         if (this == appActivity) {
-            CaltopoClient.CTDebug(TAG, "onDestroy() shutting down scanning service...");
-            Intent serviceIntent = new Intent(this, ScanningService.class);
-            stopService(serviceIntent);
+            if (isFinishing()) {
+                CaltopoClient.CTDebug(TAG, "onDestroy() shutting down scanning service...");
+                Intent serviceIntent = new Intent(this, ScanningService.class);
+                stopService(serviceIntent);
+                CaltopoClient.Shutdown();
+                appActivity = null;
+                forceStopApp();
+                super.onDestroy();
+                return;
+            }
             CaltopoClient.CTDebug(TAG, "onDestroy() archiving tracks...");
             archiveTracks();
-            CaltopoClient.Shutdown();
-            appActivity = null;
-            forceStopApp();
         }
         super.onDestroy();
     }
