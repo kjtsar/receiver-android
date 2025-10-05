@@ -8,7 +8,9 @@ import androidx.annotation.NonNull;
 
 import java.io.Serializable;
 import java.util.Locale;
-
+interface CtDroneSpecListener {
+    void mappedIdChanged(@NonNull CtDroneSpec droneSpec, @NonNull String oldVal, @NonNull String newVal);
+}
 public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
     private static final long Version = 1L;
     private static final String TAG = "CtDroneSpec";
@@ -20,6 +22,7 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
     private String owner;
     private String model; /* This is the concise text description of the drone. */
     public long mostRecentTimeInSeconds; /* timestamp of most recent packet received */
+    private transient CtDroneSpecListener myListener;
 
     public CtDroneSpec() throws RuntimeException {
         throw new RuntimeException("Use one of the other constructor methods.");
@@ -54,11 +57,17 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
         if (null == ownerIn) this.owner = "";
         else this.owner = ownerIn;
     }
-
+    public void setDroneSpecListener(CtDroneSpecListener myListener) {
+        this.myListener = myListener;
+    }
     public String setMappedId(@NonNull String newMappedId) {
+        String oldString= mappedId;
         String newStr = newMappedId.replaceAll("[^a-zA-Z0-9]", "");
-        if (!newStr.isEmpty()) {
+        if (!newStr.isEmpty() && !newStr.equals(oldString)) {
             mappedId = newStr;
+            if (null != myListener) {
+                myListener.mappedIdChanged(this, oldString, newStr);
+            }
         }
         return mappedId;
     }

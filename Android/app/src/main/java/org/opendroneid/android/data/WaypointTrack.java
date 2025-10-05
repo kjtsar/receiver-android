@@ -1,4 +1,8 @@
 package org.opendroneid.android.data;
+import static org.opendroneid.android.data.CaltopoClient.CTDebug;
+import static org.opendroneid.android.data.CaltopoClient.CTError;
+import static org.opendroneid.android.data.CaltopoClient.CTInfo;
+
 import org.json.*;
 
 import java.io.IOException;
@@ -23,10 +27,7 @@ import androidx.documentfile.provider.DocumentFile;
  * Compare one waypoint to the next to determine if there is significant enough change
  * in location to warrant archiving the new point - per MinDistanceInFeet parameter.
  *
- * TODO: May also want to consider starting a new track if there is a significant change
- *    in location or time from one waypoint to the next...
- *
- * Sample Caltopo .json file format:
+  * Sample Caltopo .json file format:
   * filename: <mappedID><startTimestamp>.json
  * 
  * {
@@ -80,14 +81,13 @@ public class WaypointTrack {
 	// lastTimestampInSeconds - there can be multiple sources for timestamps - discard earlier duplicates.
 	public long lastTimestampInSeconds;
 
-	// N.B. Relying on caller to provide unique (within a few days) trackLabel as of 22Sep2025:
 	public WaypointTrack(@NonNull String trackLabel) {
 		SimpleDateFormat sdf = new SimpleDateFormat("ddMMMyyyy-HHmmss", Locale.US);
 		startTimeStr = sdf.format(new Date());
 		this.trackLabel = trackLabel;
 		this.coordinates = new JSONArray();
 		this.lastLat = this.lastLng = 0.0;
-		CaltopoClient.CTDebug(TAG, String.format("AddWaypointForTrack(%s): Starting new track.", trackLabel));
+		CTDebug(TAG, String.format("AddWaypointForTrack(%s): Starting new track.", trackLabel));
 	}
 
 	// Rough distance measurement based on Equirectangular Distance Approximation.
@@ -131,7 +131,7 @@ public class WaypointTrack {
 
 	public static void ArchiveTracks(Context ctxt) {
 		if (0 == WaypointCount) {
-			CaltopoClient.CTError(TAG, "ArchiveTracks(): no waypoints recorded");
+			CTDebug(TAG, "ArchiveTracks(): no waypoints recorded");
 			return;
 		}
 		DocumentFile todaysArchiveDir = CaltopoClient.GetTodaysTrackDir();
@@ -148,7 +148,7 @@ public class WaypointTrack {
 			Log.i(TAG, "archive(): No new coordinates to archive.");
 			return;
 		}
-		CaltopoClient.CTDebug(TAG, String.format(Locale.US, "archive(%s): writing %d coordinates.",
+		CTDebug(TAG, String.format(Locale.US, "archive(%s): writing %d coordinates.",
 				trackLabel, numCoords));
 
 		try {
@@ -178,9 +178,10 @@ public class WaypointTrack {
 					dataFilepath.delete();
 				}
 			}
-			DocumentFile dataFilepath = archiveDir.createFile("application/geo+json", trackLabel);
+			DocumentFile dataFilepath = archiveDir.createFile("application/geo+json",	trackLabel);
 
 			try {
+				CTDebug(TAG, "archiving track to file: " + dataFilepath);
 				ContentResolver resolver = ctxt.getContentResolver();
 				OutputStream os = resolver.openOutputStream(dataFilepath.getUri());
 				os.write(joTop.toString(4).getBytes());
@@ -188,12 +189,12 @@ public class WaypointTrack {
 				os.close();
 				lastArchiveLength = numCoords;
 			} catch (IOException e) {
-				CaltopoClient.CTError(TAG, String.format("archive(%s):%s raised:\n%s.", dataFilepath,
+				CTError(TAG, String.format("archive(%s):%s raised:\n%s.", dataFilepath,
 						trackLabel, e));
 			}
-			CaltopoClient.CTDebug(TAG, String.format("archive(%s):%s.", archiveDir, trackLabel));
+			CTDebug(TAG, String.format("archive(%s):%s.", archiveDir, trackLabel));
 		} catch (JSONException e) {
-			CaltopoClient.CTError(TAG, String.format("archive(%s):%s raised:\n%s.", archiveDir,
+			CTError(TAG, String.format("archive(%s):%s raised:\n%s.", archiveDir,
 					trackLabel, e));
 		}
 	}
@@ -221,7 +222,7 @@ public class WaypointTrack {
 		}
 
 		if (lat == 0.0 && lng == 0.0) {
-			CaltopoClient.CTInfo(TAG, String.format("addWaypoint(%s):  lat/lng both zero.", trackLabel));
+			CTInfo(TAG, String.format("addWaypoint(%s):  lat/lng both zero.", trackLabel));
 			return false;
 		}
 
@@ -237,11 +238,11 @@ public class WaypointTrack {
 		long deltaTimeInSeconds = (0 == lastTimestampInSeconds) ? 0 : timestampInSeconds - lastTimestampInSeconds;
 		lastTimestampInSeconds = timestampInSeconds;
 		if (PromiscuousMode) {
-			CaltopoClient.CTDebug(TAG, String.format(Locale.US,
+			CTDebug(TAG, String.format(Locale.US,
 					"addWaypoint(%s/%s): promiscuous mode (any change) %d seconds, adding %.7f,%.7f",
 					trackLabel, transportType, deltaTimeInSeconds, lat, lng));
 		} else {
-			CaltopoClient.CTDebug(TAG, String.format(Locale.US,
+			CTDebug(TAG, String.format(Locale.US,
 					"addWaypoint(%s/%s): delta %d feet after %d seconds, adding %.7f,%.7f",
 					trackLabel, transportType, distanceInFeet, deltaTimeInSeconds, lat, lng));
 		}

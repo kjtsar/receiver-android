@@ -508,7 +508,6 @@ public class DebugActivity extends AppCompatActivity {
             public void onClick(DialogInterface dialog, int which) {
                 CaltopoClient.CTDebug(TAG, String.format(Locale.US, "User confirmed change track label From:'%s' to '%s'",
                         existingLabel, droneSpec.getMappedId()));
-                client.userResponseForLabelChange(droneSpec, existingLabel,true);
                 dialog.dismiss();
             }
         });
@@ -519,7 +518,6 @@ public class DebugActivity extends AppCompatActivity {
             public void onClick(DialogInterface dialog, int which) {
                 // User clicked "No", dismiss the dialog
                 CaltopoClient.CTDebug(TAG, "User cancelled track label change.");
-                client.userResponseForLabelChange(droneSpec, existingLabel, false);
                 dialog.dismiss();
             }
         });

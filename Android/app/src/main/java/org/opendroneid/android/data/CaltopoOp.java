@@ -1,5 +1,7 @@
 package org.opendroneid.android.data;
 
+import static org.opendroneid.android.data.CaltopoClient.CTError;
+
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -8,9 +10,12 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import android.util.Log;
+
+import android.os.Handler;
+import android.os.Looper;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 /* Object for keeping track of communications to/from Caltopo server.
  * Note that each operation returns an integer operation number for the 
@@ -22,11 +27,11 @@ import androidx.annotation.NonNull;
  */
 public class CaltopoOp implements Future <CaltopoOp> {
     private static final String TAG = "CaltopoOp";
-    public CaltopoSession cts;
-    public long opNum;
+	public long opNum;
     public long queuedTimestampMsec;
     public long sentTimestampMsec;
     public long receivedTimestampMsec;
+	public Runnable runnable;
 
     // the actual message to be sent - in case it needs to be resent:
     public CtsMethod_t method;
@@ -41,17 +46,18 @@ public class CaltopoOp implements Future <CaltopoOp> {
     public String response;    // if receivedTimestampInMsec && goodResponse == false;
     public JSONObject responseJson; // if receivedTimestampInMsec && goodResponse == true;
 	public boolean goNaked;
+	private boolean isDone;
 	    
-    public CaltopoOp() {
+    public CaltopoOp() throws RuntimeException {
 		throw new RuntimeException("use: new CaltopoOp(CaltopoSession) instead.");
     }
 
-    public CaltopoOp(CaltopoSession cts) {
-		this.cts = cts;
+	public CaltopoOp(@Nullable Runnable runnable) {
 		opNum = ++lastOpNum;
 		queuedTimestampMsec = System.currentTimeMillis();
-		CaltopoClient.CTInfo(TAG, String.format(Locale.US, "creating op %d", opNum));
-    }
+		this.runnable = runnable;
+//		CaltopoClient.CTInfo(TAG, String.format(Locale.US, "creating op %d", opNum));
+	}
 
     public long roundTripTimeInMsec() {
 			return receivedTimestampMsec - queuedTimestampMsec;
@@ -65,9 +71,19 @@ public class CaltopoOp implements Future <CaltopoOp> {
 	return (asyncFuture.isDone() && !goodResponse);
     }
 
-    public String getErrorResponse() { return response; }
+    @Nullable
+	public String getErrorResponse() { return response; }
 	    
-    public JSONObject getResponse() { return responseJson; }
+    @Nullable
+	public JSONObject getResponse() { return responseJson; }
+
+	public void setOperationIsDone(boolean opPassed) {
+		goodResponse = opPassed;
+		isDone = true;
+		if (null == runnable) return;
+		Handler handler = new Handler(Looper.getMainLooper());
+		handler.post(runnable);
+	}
 
 	@Override
 	@NonNull
@@ -78,26 +94,27 @@ public class CaltopoOp implements Future <CaltopoOp> {
 			try {
 				jsonStringRep = payload.toString(2);
 			} catch (JSONException e) {
-				CaltopoClient.CTError(TAG, "payload.toString() raised:", e);
+				CTError(TAG, "payload.toString() raised:", e);
 			}
 		}
 		if (responseJson != null) {
 			try {
 				responseJsonStringRep = responseJson.toString(2);
 			} catch (JSONException e) {
-				CaltopoClient.CTError(TAG, "responseJson.toString() raised:", e);
+				CTError(TAG, "responseJson.toString() raised:", e);
 			}
 		}
 		return String.format(Locale.US,
 			"CaltopoOp %d: %s, %s, payload:\n%s\n  queued:%d\n  sent:%d\n  " +
-					"received: %d  \n  good:%s, response:%s\n  jsonResponse:\n%s",
+					"received: %d  \n  isDone:%s good:%s, response:%s\n  jsonResponse:\n%s",
 			opNum, method, url, jsonStringRep,
 				queuedTimestampMsec, sentTimestampMsec, receivedTimestampMsec,
-				goodResponse ? "true" : "false", response, responseJsonStringRep);
+				isDone, goodResponse, response, responseJsonStringRep);
     }
 	
 	// syncOp... options for blocking until completion for results:
-    public JSONObject syncOpJSONObject()
+    @Nullable
+	public JSONObject syncOpJSONObject()
 			throws ExecutionException, InterruptedException, JSONException {
 		this.get();
 		if (fail()) {
@@ -136,29 +153,18 @@ public class CaltopoOp implements Future <CaltopoOp> {
 		return responseJson;
     }
 
-	public String id() throws JSONException {
+	public String id() {
 		if (null == responseJson) {
-			throw new JSONException("op failed to return expected JSONObject in response.\n" + this);
+			CTError(TAG, "op failed to return expected JSONObject in response.\n" + this);
+			return "";
 		}
-		return responseJson.getString("id");
-	}
-    public String syncOpId()
-			throws ExecutionException, InterruptedException, JSONException {
-		syncOpJSONObject();
-		return id();
+		String retval = responseJson.optString("id", "");
+		if (retval.isEmpty()) CTError(TAG, "responseJson did not contain expected id.\n" + this);
+		return retval;
 	}
 
-
-    public String syncOpId(double timeoutInSec)
-			throws ExecutionException, InterruptedException,
-			TimeoutException, JSONException {
-		syncOpJSONObject(timeoutInSec);
-		return id();
-	}
-
-
-    public void finalize() {
-		CaltopoClient.CTInfo(TAG, String.format(Locale.US, "destroying op %d", this.opNum));
+    protected void finalize() {
+//		CaltopoClient.CTInfo(TAG, String.format(Locale.US, "destroying op %d", this.opNum));
     }
 
     // Future interface implementation:
@@ -179,8 +185,8 @@ public class CaltopoOp implements Future <CaltopoOp> {
 		return this;
     }
 
-    public CaltopoOp get(long timeout, TimeUnit unit)
-			throws ExecutionException, InterruptedException, TimeoutException {
+	public CaltopoOp get(long timeout, TimeUnit unit)
+			throws RuntimeException, ExecutionException, InterruptedException, TimeoutException {
 		if (null == asyncFuture) {
 			throw new RuntimeException("get() called on unscheduled operation.");
 		}
@@ -188,18 +194,19 @@ public class CaltopoOp implements Future <CaltopoOp> {
 		return this;
     }
 
-    public boolean isCancelled() {
+    public boolean isCancelled() throws RuntimeException {
 		if (null == asyncFuture) {
 			throw new RuntimeException("isCancelled() called on unscheduled operation.");
 		}
 		return asyncFuture.isCancelled();
     }
 
-    public boolean isDone() {
+    public boolean isDone() throws RuntimeException {
 		if (null == asyncFuture) {
 			throw new RuntimeException("isDone() called on unscheduled operation.");
 		}
-		return asyncFuture.isDone();
+		isDone = isDone || asyncFuture.isDone();
+		return isDone;
     }
 	
 } // end of CaltopoOp class spec.

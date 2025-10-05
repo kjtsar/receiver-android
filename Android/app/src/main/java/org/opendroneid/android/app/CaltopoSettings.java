@@ -1,10 +1,12 @@
 package org.opendroneid.android.app;
 
+import static org.opendroneid.android.data.CaltopoClient.CTDebug;
+import static org.opendroneid.android.data.CaltopoClient.CTError;
+import static org.opendroneid.android.data.CaltopoClient.CTInfo;
+
 import android.content.DialogInterface;
 import android.database.DataSetObserver;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.LayoutInflater;
@@ -27,6 +29,7 @@ import androidx.fragment.app.FragmentTransaction;
 import org.opendroneid.android.data.CaltopoClient;
 import org.opendroneid.android.R;
 import org.opendroneid.android.data.CtDroneSpec;
+import org.opendroneid.android.data.DelayedExec;
 
 import java.util.ArrayList;
 import java.util.Locale;
@@ -55,13 +58,12 @@ enum ET_Field_t {
 
 class MyEditTextWatcher implements TextWatcher {
     private static final String TAG = "MyEditTextWatcher";
-    private static final long delayInMsec = 1000;
+    private static final long delayInMsec = 10000;
     private EditText editText;
     private String setValue;
     private ET_Field_t field;
     private CtDroneSpec droneSpec;
-    private Handler handler;
-    private Runnable runnable;
+    private DelayedExec delayedExec;
     private boolean pendingChange;
     private int cursorPosition;
 
@@ -76,7 +78,7 @@ class MyEditTextWatcher implements TextWatcher {
                 editText.setText(setValue);
                 editText.addTextChangedListener(this);
             } else {
-                CaltopoClient.CTError(TAG,
+                CTError(TAG,
                         String.format(Locale.US, "setTextValue(0x%x): Can't change text that I don't watch: 0x%x.",
                                 System.identityHashCode(this), System.identityHashCode(textsWatcher)));
             }
@@ -88,21 +90,21 @@ class MyEditTextWatcher implements TextWatcher {
     public MyEditTextWatcher() {}
     public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
     public void onTextChanged(CharSequence s, int start, int before, int count) {
-        if (pendingChange) handler.removeCallbacks(runnable);
+        if (pendingChange) delayedExec.stop();
     }
     public void afterTextChanged(Editable e) {
         String newValue = e.toString();
-        CaltopoClient.CTDebug(TAG, String.format(Locale.US, "afterTextChanged(0x%x) has detected change from:'%s' to:'%s'",
+        CTDebug(TAG, String.format(Locale.US, "afterTextChanged(0x%x) has detected change from:'%s' to:'%s'",
                 System.identityHashCode(this), setValue, newValue));
-        if (null == handler) {
-            handler = new Handler(Looper.getMainLooper());
+        if (null == delayedExec) {
+            delayedExec = new DelayedExec();
         }
-        runnable = () -> {textHasFinishedChanging(e.toString().trim());};
+        Runnable runnable = () -> {textHasFinishedChanging(e.toString().trim());};
         pendingChange = true;
         cursorPosition = editText.getSelectionStart();
-        CaltopoClient.CTDebug(TAG, String.format(Locale.US, "set cursorPosition to selectionStart(%d), selectionEnd(%d)",
+        CTDebug(TAG, String.format(Locale.US, "set cursorPosition to selectionStart(%d), selectionEnd(%d)",
                 cursorPosition, editText.getSelectionEnd()));
-        handler.postDelayed(runnable, delayInMsec);
+        delayedExec.start(runnable, delayInMsec, delayInMsec);
     }
 
     @Override
@@ -118,8 +120,8 @@ class MyEditTextWatcher implements TextWatcher {
         if (editText.getTag() instanceof MyEditTextWatcher) {
             textWatcher = (MyEditTextWatcher)editText.getTag();
             if (textWatcher.pendingChange) {
-                CaltopoClient.CTDebug(TAG, "SetupWatcher(): terminating pending.");
-                textWatcher.handler.removeCallbacks(textWatcher.runnable);
+                CTDebug(TAG, "SetupWatcher(): terminating pending.");
+                textWatcher.delayedExec.stop();
                 textWatcher.pendingChange = false;
             }
         } else {
@@ -149,12 +151,12 @@ class MyEditTextWatcher implements TextWatcher {
         };
 
         if (!setValue.equals(approved)) {
-            CaltopoClient.CTDebug(TAG, String.format(Locale.US,
+            CTDebug(TAG, String.format(Locale.US,
                     "textHasFinishedChanging(0x%x): %s old:'%s' new:'%s' approved:'%s'",
                     System.identityHashCode(this), field.toString(), setValue, newValue, approved));
             setTextValue(approved);
             if (cursorPosition >= 0 && cursorPosition <= approved.length()) {
-                CaltopoClient.CTInfo(TAG, "Setting cursorPosition:" + cursorPosition);
+                CTInfo(TAG, "Setting cursorPosition:" + cursorPosition);
                 editText.setSelection(cursorPosition);
             }
         }
@@ -163,10 +165,8 @@ class MyEditTextWatcher implements TextWatcher {
 
 
 /**
- * Use the {@link CaltopoSettings#newInstance} factory method to
- * create an instance of this fragment.
  */
-public class CaltopoSettings extends DialogFragment implements TextWatcher, ListAdapter, View.OnClickListener {
+public class CaltopoSettings extends DialogFragment implements TextWatcher, CaltopoClient.CtDroneSpecArrayMonitor, ListAdapter, View.OnClickListener {
     private static final String TAG = "CaltopoSettings";
     private static final String GROUP_ID_LABEL = "Group Id";
     private static final String MAP_ID_LABEL = "Map Id";
@@ -192,9 +192,8 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
     TextView groupMapLabel;
     ToggleButton directToggle;
     ArrayList<DroneSpecViewHolder>droneSpecViewHolders;
-    private Handler viewUpdaterHandler;
-    private Runnable viewUpdater;
-    ArrayList<CtDroneSpec>currentDroneSpecsClone;
+    private DelayedExec viewUpdater;
+    ArrayList<CtDroneSpec>currentDroneSpecs;
 
     public static CaltopoSettings newInstance() {
         return new CaltopoSettings();
@@ -212,12 +211,12 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
         String oldVal = CaltopoClient.GetGroupId();
 
         if (!newVal.equals(oldVal)) {
-            CaltopoClient.CTDebug(TAG, String.format(Locale.US, "%s changing to '%s' from '%s'",
+            CTDebug(TAG, String.format(Locale.US, "%s changing to '%s' from '%s'",
                     GROUP_ID_LABEL,  newVal, oldVal));
             oldVal = CaltopoClient.SetGroupId(newVal);
             if (!oldVal.equals(newVal)) {
                 groupIdText.setText(oldVal);
-                CaltopoClient.CTDebug(TAG, String.format(Locale.US, "... but CaltopoClient went with '%s' instead.", oldVal));
+                CTDebug(TAG, String.format(Locale.US, "... but CaltopoClient went with '%s' instead.", oldVal));
             }
         }
     }
@@ -228,12 +227,12 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
         String oldVal = CaltopoClient.GetMapId();
 
         if (!newVal.equals(oldVal)) {
-            CaltopoClient.CTDebug(TAG, String.format(Locale.US, "%s changing to '%s' from '%s'",
+            CTDebug(TAG, String.format(Locale.US, "%s changing to '%s' from '%s'",
                     MAP_ID_LABEL,  newVal, oldVal));
             oldVal = CaltopoClient.SetMapId(newVal);
             if (!oldVal.equals(newVal)) {
                 mapIdText.setText(oldVal);
-                CaltopoClient.CTDebug(TAG, String.format(Locale.US, "... but CaltopoClient went with '%s' instead.", oldVal));
+                CTDebug(TAG, String.format(Locale.US, "... but CaltopoClient went with '%s' instead.", oldVal));
             }
         }
     }
@@ -246,17 +245,17 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
             inputVal = Long.parseLong(rawInput);
 
         } catch (NumberFormatException e) {
-            CaltopoClient.CTDebug(TAG, String.format(Locale.US, "checkMinDistance(%s) not a valid numeric value.", rawInput));
+            CTDebug(TAG, String.format(Locale.US, "checkMinDistance(%s) not a valid numeric value.", rawInput));
             minChangedText.setText(String.format(Locale.US, "%d", minChangedVal));
             inputVal = 0;
         }
 
         if (inputVal != minChangedVal) {
-            CaltopoClient.CTDebug(TAG, String.format(Locale.US, "minDistanceInDegrees changing to '%d' from '%d'.", inputVal, minChangedVal));
+            CTDebug(TAG, String.format(Locale.US, "minDistanceInDegrees changing to '%d' from '%d'.", inputVal, minChangedVal));
             minChangedVal = CaltopoClient.setMinDistanceInFeet(inputVal);
             if (inputVal != minChangedVal) {
                 minChangedText.setText(String.format(Locale.US, "%d", minChangedVal));
-                CaltopoClient.CTDebug(TAG, String.format(Locale.US, "... but CaltopoClient went with '%d' instead of '%d'.",
+                CTDebug(TAG, String.format(Locale.US, "... but CaltopoClient went with '%d' instead of '%d'.",
                         minChangedVal, inputVal));
             }
         }
@@ -270,19 +269,19 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
         try {
             inputVal = Long.parseLong(rawInput);
         } catch (NumberFormatException e) {
-            CaltopoClient.CTDebug(TAG, String.format(Locale.US,
+            CTDebug(TAG, String.format(Locale.US,
                     "checkNewTrackDelay(%s) not a valid numeric value.", rawInput));
             minChangedText.setText(String.format(Locale.US, "%d", currentVal));
             return;
         }
 
         if (inputVal != currentVal) {
-            CaltopoClient.CTDebug(TAG, String.format(Locale.US,
+            CTDebug(TAG, String.format(Locale.US,
                     "NewTrackDelayInSeconds changing to '%d' from '%d'.", inputVal, currentVal));
             currentVal = CaltopoClient.SetNewTrackDelayInSeconds(inputVal);
             if (inputVal != currentVal) {
                 minChangedText.setText(String.format(Locale.US, "%d", currentVal));
-                CaltopoClient.CTDebug(TAG, String.format(Locale.US,
+                CTDebug(TAG, String.format(Locale.US,
                         "... but CaltopoClient went with '%d' instead of '%d'.",
                         currentVal, inputVal));
             }
@@ -296,13 +295,13 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
         try {
             inputVal = Long.parseLong(rawInput);
         } catch (NumberFormatException e) {
-            CaltopoClient.CTDebug(TAG, String.format(Locale.US,
+            CTDebug(TAG, String.format(Locale.US,
                     "checkMaxDisplayAgeInSec(%s) not a valid numeric value.", rawInput));
             maxAgeInSecEditText.setText(String.format(Locale.US, "%d", currentVal));
             return;
         }
         if (inputVal != currentVal) {
-            CaltopoClient.CTDebug(TAG, String.format(Locale.US,
+            CTDebug(TAG, String.format(Locale.US,
                     "MaxDelayInSeconds changing to '%d' from '%d'.", inputVal, currentVal));
             CaltopoClient.SetMaxDisplayAgeInSeconds(inputVal);
         }
@@ -311,7 +310,7 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
     // User pushed the "save" or "close" button - check 4 && save any changes:
     public void onClick(View v){
         if (v == saveChanges) {
-            CaltopoClient.CTInfo(TAG, "Received onClick() for saveChanges.");
+            CTInfo(TAG, "Received onClick() for saveChanges.");
             if (v == archivePathText || v == archiveDirButton) {
                 CaltopoClient.QueryUserForArchiveDir();
             }
@@ -322,14 +321,14 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
             checkNewTrackDelay();
             checkMaxDisplayAgeInSec();
             ((DebugActivity)requireActivity()).archiveTracks();
-            CaltopoClient.CTInfo(TAG, "Disabling saveChanges.");
+            CTInfo(TAG, "Disabling saveChanges.");
             saveChanges.setEnabled(false);
         } else if (v == configTitle) {
             String newLevel = CaltopoClient.BumpLoggingLevel();
             configInfo.setText(newLevel);
             return;
-        } else {
-            CaltopoClient.CTDebug(TAG, "Enabling saveChanges.");
+        } else if (v != closeButton) {
+            CTDebug(TAG, "Enabling saveChanges.");
             saveChanges.setEnabled(true);
         }
         dismiss();
@@ -356,7 +355,7 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
 
     @Override public View getView(int pos, @Nullable View convertView, @NonNull ViewGroup parent) {
         DroneSpecViewHolder viewHolder;
-        CtDroneSpec ds = currentDroneSpecsClone.get(pos);
+        CtDroneSpec ds = currentDroneSpecs.get(pos);
 
         if (null != convertView) {
             viewHolder = (DroneSpecViewHolder) convertView.getTag();
@@ -398,26 +397,24 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
                 changeCount++;
             }
         }
-        CaltopoClient.CTInfo(TAG, String.format(Locale.US,
+        CTInfo(TAG, String.format(Locale.US,
                 "updateViewTextCounts(): made %d changes.", changeCount));
-        viewUpdaterHandler.postDelayed(viewUpdater, 1000);
     }
 
 
     private void startTextViewUpdater() {
-        if (null == viewUpdaterHandler) {
-            CaltopoClient.CTDebug(TAG, "getView() starting updater.");
-            viewUpdaterHandler = new Handler(Looper.getMainLooper());
-            viewUpdater = this::updateViewTextCounts;
-            viewUpdaterHandler.postDelayed(viewUpdater, 1000);
+        if (null == viewUpdater) {
+            viewUpdater = new DelayedExec();
+        }
+        if (!viewUpdater.isRunning()) {
+            CTInfo(TAG, "getView() starting updater.");
+            viewUpdater.start(this::updateViewTextCounts, 1000, 1000);
         }
     }
     private void stopTextViewUpdater() {
-        if (null != viewUpdaterHandler) {
-            CaltopoClient.CTDebug(TAG, "stopTextViewUpdater(): stopping updater.");
-            viewUpdaterHandler.removeCallbacks(viewUpdater);
-            viewUpdater = null;
-            viewUpdaterHandler = null;
+        if (null != viewUpdater && viewUpdater.isRunning()) {
+            CTDebug(TAG, "stopTextViewUpdater(): stopping updater.");
+            viewUpdater.stop();
         }
     }
 
@@ -429,19 +426,21 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
     @Override public boolean hasStableIds() {return true;}
 
     @Override public boolean isEmpty() {
-        return ((null != currentDroneSpecsClone) && (!currentDroneSpecsClone.isEmpty()));
+        return ((null != currentDroneSpecs) && (!currentDroneSpecs.isEmpty()));
     }
 
     @Override public int getCount() {
-        int retval = 0;
-
-        buildViewMap(); // fixme: better than polling would be to have the CaltopoClient notify us when the map has changed.
-        if (null != currentDroneSpecsClone) retval = currentDroneSpecsClone.size();
-        return retval;
+        if (null != currentDroneSpecs) return currentDroneSpecs.size();
+        return 0;
+    }
+    public void droneSpecArrayChanged() {
+        long ageInSec = CaltopoClient.GetMaxDisplayAgeInSeconds();
+        currentDroneSpecs = CaltopoClient.GetSortedCurrentDroneSpecArray(ageInSec);
+        if (null != mapListView) mapListView.invalidate();
     }
 
     @Override public Object getItem(int pos) {
-        return currentDroneSpecsClone.get(pos);
+        return currentDroneSpecs.get(pos);
     }
 
     /** Build viewMap for the gridview using remoteIds that have been seen in the past day.
@@ -450,10 +449,7 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
     @SuppressWarnings("unchecked")
     private void buildViewMap() {
         long ageInSec = CaltopoClient.GetMaxDisplayAgeInSeconds();
-        ArrayList<CtDroneSpec> currentDroneSpecs = CaltopoClient.GetSortedCurrentDroneSpecArray(ageInSec);
-        if (null != currentDroneSpecsClone && currentDroneSpecsClone.equals(currentDroneSpecs)) return;
-
-        currentDroneSpecsClone = (ArrayList<CtDroneSpec>)currentDroneSpecs.clone();
+        currentDroneSpecs = CaltopoClient.GetSortedCurrentDroneSpecArray(ageInSec);
     }
 
     public void updateViewMaps() {
@@ -464,7 +460,7 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
         CaltopoDirectSettings configPanel = new CaltopoDirectSettings();
         FragmentManager mgr = requireActivity().getSupportFragmentManager();
         FragmentTransaction transaction = mgr.beginTransaction();
-        CaltopoClient.CTDebug(TAG, "runCaltopoDirectConfigPanel(): starting CaltopoDirectSettings...");
+        CTDebug(TAG, "runCaltopoDirectConfigPanel(): starting CaltopoDirectSettings...");
         configPanel.show(transaction, "CaltopoDirectSettings");
     }
 
@@ -517,6 +513,8 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
 
         mapListView = settingsView.findViewById(R.id.ct_mapListview);
         mapListView.setAdapter(this);
+        droneSpecArrayChanged();
+
         groupMapLabel = settingsView.findViewById(R.id.groupLabelText);
         directToggle = settingsView.findViewById(R.id.ct_directToggle);
 
@@ -530,7 +528,7 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
             @Override
             public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
                 // This block of code will be executed when the checked state changes
-                CaltopoClient.CTDebug(TAG, "directToggle is " + isChecked);
+                CTDebug(TAG, "directToggle is " + isChecked);
                 if (isChecked) {
                     runCaltopoDirectConfigPanel();
                     mapIdText.setText(CaltopoClient.GetMapId());
@@ -541,6 +539,7 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, List
             }
         });
 
+        CaltopoClient.SetDroneSpecMonitor(this);
         return settingsView;
     }
 }
