@@ -54,7 +54,7 @@ public class CaltopoLiveTrack {
             ix = ix % window.length;
             return sum / ((0 == ix) ? window.length : ix);
         }
-        public long get() {return sum / ix;}
+        public long get() {return sum / ((0 == ix) ? window.length : ix);}
     }
 
     public CaltopoLiveTrack(@NonNull CaltopoClientMap map, @NonNull String trackLabel, @NonNull String groupId,
