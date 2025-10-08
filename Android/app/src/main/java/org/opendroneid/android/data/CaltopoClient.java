@@ -202,22 +202,12 @@ public class CaltopoClient implements CtDroneSpecListener {
 
     public static int GetDebugLevel() {return DebugLevel;}
 
-    public void permitMappedIdChangeResponse() {
-        if (mappedIdAlert.getResponse()) {
-            // Shut down/restart live track
-            terminateTrack("User approved termination of track " + trackLabel);
-            trackLabel = null;
-        }
-    }
-    public void mappedIdChanged(@NonNull CtDroneSpec ds, @NonNull String oldval, @NonNull String newval) {
+        public void mappedIdChanged(@NonNull CtDroneSpec ds, @NonNull String oldval, @NonNull String newval) {
         CTDebug(TAG, String.format(Locale.US,
-                "mappedIdChanged(%s): Popping alert for change from '%s' to '%s'", trackLabel, oldval, newval));
-        if (trackLabel != null) {
-            CTDebug(TAG, String.format(Locale.US,
-                    "mappedIdChanged(): Popping alert for change from '%s' to '%s'", oldval, newval));
-            mappedIdAlert = new CtAlertDialog("Permit mapped id change?",
-                    "Do you want to terminate the current track?",
-                    this::permitMappedIdChangeResponse);
+                "mappedIdChanged(%s): change from '%s' to '%s'", trackLabel, oldval, newval));
+        if (null != trackLabel &&  null != liveTrack && liveTrack.isActive()) {
+            trackLabel = newTrackLabel();
+            liveTrack.renameTrack(trackLabel);
         } // else drone hasn't broadcast recently.
     }
 

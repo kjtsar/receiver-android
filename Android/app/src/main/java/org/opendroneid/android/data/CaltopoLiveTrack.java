@@ -21,6 +21,8 @@ public class CaltopoLiveTrack {
     private static JSONObject R2cPeers;
     private static SimpleMovingAverage CaltopoRttInMsec;
     private CaltopoOp startLiveTrackOp;
+    private CaltopoOp renameTrackOp;
+    private String renameTrackLabel;
     private CaltopoOp liveTrackOp;
     private String liveTrackId;
     private LinkedList<double[]> linePoints; // array of arrays of [lat,lng] pairs
@@ -150,6 +152,39 @@ public class CaltopoLiveTrack {
         startLiveTrackOp = null;
     }
 
+    public void renameTrackCompleted() {
+        if (renameTrackOp.fail()) {
+            CTError(TAG, "renameTrackCompleted(): Failed to rename LiveTrack: " + renameTrackOp.responseString());
+        } else {
+            CTDebug(TAG, "renameTrackCompleted(): succeeded: " + renameTrackOp.responseString());
+        }
+    }
+
+    public void renameTrack(String trackLabel) {
+        renameTrackLabel = null;
+        // Just edit the current live track - replacing the title.
+        if (!active || null == startLiveTrackOp) {
+            CTError(TAG, "renameTrack(): received on inactive track.");
+            return;
+        }
+        if (!startLiveTrackOp.isDone()) {
+            renameTrackLabel = trackLabel;
+            return;
+        }
+        try {
+            long timeNowInMilliseconds = System.currentTimeMillis();
+            String timeString = String.valueOf(timeNowInMilliseconds);
+            JSONObject feature = startLiveTrackOp.responseJson;
+            JSONObject prop = feature.optJSONObject("properties");
+            if (null != prop) prop.put("title", trackLabel);
+            prop.put("updated", timeString);
+            prop.put("-updated-on", timeString);
+            renameTrackOp = Csp.editObjectWithId("LiveTrack", liveTrackId, feature, this::renameTrackCompleted);
+        } catch (Exception e) {
+            CTError(TAG, "renameTrack() raised.", e);
+        }
+    }
+
     public void startNewTrack(String trackLabel) {
         myTrackLabel = trackLabel;
         linePointsSentCount = 0;
@@ -198,6 +233,7 @@ public class CaltopoLiveTrack {
             liveTrackId = startLiveTrackOp.id();
             CTDebug(TAG, String.format(Locale.US, "startLiveTrackComplete(%s): liveTrackId: '%s'",
                     myTrackLabel, liveTrackId));
+            if (null != renameTrackLabel) renameTrack(renameTrackLabel);
         } catch (Exception e) {
             CTError(TAG, "startLiveTrackComplete(): id() raised:", e);
         }
