@@ -22,6 +22,7 @@ import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -121,7 +122,6 @@ enum CtsMethod_t {
 	POST,
 	DELETE
 }
-
 
 public class CaltopoSession {
     private static final String TAG = "CaltopoSession";
@@ -247,11 +247,11 @@ public class CaltopoSession {
 				}
 
 				// Get the response code
-				int responseCode = connection.getResponseCode();
+				op.responseCode = connection.getResponseCode();
 				BufferedReader reader;
 
 				// Handle the response stream
-				if (responseCode == HttpURLConnection.HTTP_OK) {
+				if (op.responseCode == HttpURLConnection.HTTP_OK) {
 					reader = new BufferedReader(new InputStreamReader(connection.getInputStream(),
 							StandardCharsets.UTF_8));
 				} else {
@@ -269,7 +269,7 @@ public class CaltopoSession {
 				op.receivedTimestampMsec = System.currentTimeMillis();
 				op.response = response.toString();
 				boolean opPassed ;
-				if (responseCode == HttpURLConnection.HTTP_OK) {
+				if (op.responseCode == HttpURLConnection.HTTP_OK) {
 					opPassed = true;
 					if (!op.response.isEmpty()) try {
 						JSONObject responseJson = new JSONObject(op.response);
@@ -451,7 +451,7 @@ public class CaltopoSession {
 	@Nullable
 	CaltopoOp addMarker(double lat, double lng, @NonNull String markerTitle,
 						@Nullable String symbol, @Nullable String folderId,
-						@Nullable String existingMarkerId, @Nullable Runnable optRunnable) {
+						@Nullable String existingMarkerId, @Nullable JSONObject extraProperties,  @Nullable Runnable optRunnable) {
 		JSONObject prop = new JSONObject();
 		JSONObject geometry = new JSONObject();
 		JSONObject top = new JSONObject();
@@ -461,13 +461,21 @@ public class CaltopoSession {
 			prop.put("updated", System.currentTimeMillis());
 			prop.put("title", markerTitle);
 			prop.put("marker-color", "#FF0000");
-			prop.put("marker-symbol", "point");
+			if (symbol.isEmpty()) symbol = "point";
+			prop.put("marker-symbol", symbol);
 			prop.put("marker-size", "1");
 			prop.put("marker-visibility", "visible");
 			if (folderId != null && !folderId.isEmpty()) {
 				prop.put("folderId", folderId);
 			}
-
+			if (null != extraProperties) try {
+                for (Iterator<String> it = extraProperties.keys(); it.hasNext(); ) {
+                    String key = it.next();
+                    prop.put(key, extraProperties.get(key));
+                }
+			} catch (Exception e) {
+				CTError(TAG, "exception processing extraProperties.", e);
+			}
 			JSONArray points = new JSONArray(String.format(Locale.US, "[%.7f,%.7f]", lng, lat));
 			geometry.put("coordinates", points);
 			geometry.put("type", "Point");

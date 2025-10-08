@@ -78,8 +78,7 @@ public class WaypointTrack {
 	public String startTimeStr;
 	public double lastLat;
 	public double lastLng;
-	// lastTimestampInSeconds - there can be multiple sources for timestamps - discard earlier duplicates.
-	public long lastTimestampInSeconds;
+	public long lastTimestampInMillisec;
 
 	public WaypointTrack(@NonNull String trackLabel) {
 		SimpleDateFormat sdf = new SimpleDateFormat("ddMMMyyyy-HHmmss", Locale.US);
@@ -119,14 +118,14 @@ public class WaypointTrack {
 
 	// returns true if waypoint meets requirements and is added to track.
 	public static boolean AddWaypointForTrack(@NonNull String trackLabel, double lat, double lng,
-											  long altAboveLaunchInMeters, long timestampInSec,
+											  long altAboveLaunchInMeters, long timestampInMillisec,
 											  String transportType) {
 		WaypointTrack track = TrackMap.get(trackLabel);
 		if (null == track) {
 			track = new WaypointTrack(trackLabel);
 			TrackMap.put(trackLabel, track);
 		}
-		return track.addWaypoint(lat, lng, altAboveLaunchInMeters, timestampInSec, transportType);
+		return track.addWaypoint(lat, lng, altAboveLaunchInMeters, timestampInMillisec, transportType);
 	}
 
 	public static void ArchiveTracks(Context ctxt) {
@@ -201,10 +200,10 @@ public class WaypointTrack {
 
 	// returns true if waypoint added
 	public boolean addWaypoint(double lat, double lng,
-							   long altInMeters, long timestampInSeconds, String transportType) {
+							   long altInMeters, long timestampInMillisec, String transportType) {
 		long distanceInFeet = 0;
 
-		if ((lastTimestampInSeconds != 0) && (timestampInSeconds <= lastTimestampInSeconds)) {
+		if ((lastTimestampInMillisec != 0) && (timestampInMillisec <= lastTimestampInMillisec)) {
 			// have to handle this case because one drone can advertise on both Bluetooth and WiFi
 			// and we can receive multiple updates for the same drone.  We also never want to
 			// update more often than once per second.
@@ -230,21 +229,21 @@ public class WaypointTrack {
 		ja.put(String.format(Locale.US, "%.6f", lng));
 		ja.put(String.format(Locale.US, "%.6f", lat));
 		ja.put(String.format(Locale.US, "%d", altInMeters));
-		ja.put(String.format(Locale.US, "%d", timestampInSeconds));
+		ja.put(String.format(Locale.US, "%d", timestampInMillisec));
 		coordinates.put(ja);
 		WaypointCount++;
 		lastLat = lat;
 		lastLng = lng;
-		long deltaTimeInSeconds = (0 == lastTimestampInSeconds) ? 0 : timestampInSeconds - lastTimestampInSeconds;
-		lastTimestampInSeconds = timestampInSeconds;
+		long deltaTimeInMillisec = (0 == lastTimestampInMillisec) ? 0 : timestampInMillisec - lastTimestampInMillisec;
+		lastTimestampInMillisec = timestampInMillisec;
 		if (PromiscuousMode) {
 			CTDebug(TAG, String.format(Locale.US,
-					"addWaypoint(%s/%s): promiscuous mode (any change) %d seconds, adding %.7f,%.7f",
-					trackLabel, transportType, deltaTimeInSeconds, lat, lng));
+					"addWaypoint(%s/%s): promiscuous mode (any change) %.3f seconds, adding %.7f,%.7f",
+					trackLabel, transportType, (double)deltaTimeInMillisec/1000.0, lat, lng));
 		} else {
 			CTDebug(TAG, String.format(Locale.US,
-					"addWaypoint(%s/%s): delta %d feet after %d seconds, adding %.7f,%.7f",
-					trackLabel, transportType, distanceInFeet, deltaTimeInSeconds, lat, lng));
+					"addWaypoint(%s/%s): delta %d feet after %.3f seconds, adding %.7f,%.7f",
+					trackLabel, transportType, distanceInFeet, (double)deltaTimeInMillisec/1000.0, lat, lng));
 		}
 		return true;
 	}

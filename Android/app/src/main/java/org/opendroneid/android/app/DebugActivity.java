@@ -6,6 +6,7 @@
  */
 package org.opendroneid.android.app;
 
+import static org.opendroneid.android.data.CaltopoClient.CTDebug;
 import android.Manifest;
 
 import androidx.appcompat.app.AlertDialog;
@@ -49,10 +50,12 @@ import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.Priority;
 import com.google.android.material.snackbar.Snackbar;
 
+import org.opendroneid.android.BuildConfig;
 import org.opendroneid.android.Constants;
 import org.opendroneid.android.R;
 import org.opendroneid.android.bluetooth.BluetoothScanner;
 import org.opendroneid.android.data.CaltopoClient;
+import org.opendroneid.android.data.CaltopoClientMap;
 import org.opendroneid.android.data.CtDroneSpec;
 import org.opendroneid.android.data.WaypointTrack;
 import org.opendroneid.android.log.LogWriter;
@@ -188,6 +191,9 @@ public class DebugActivity extends AppCompatActivity {
             showCaltopoConfigPanel();
         } else if (id == R.id.caltopoConfig) {
             CaltopoClient.RequestLoadConfigFile();
+        } else if (id == R.id.version) {
+            showToast(BuildConfig.BUILD_TIME);
+            showToast(BuildConfig.BUILD_TIME);
         }
 /*
         if (BuildConfig.USE_GOOGLE_MAPS)
@@ -254,19 +260,34 @@ public class DebugActivity extends AppCompatActivity {
         }
     }
 */
+    private void CheckPermission(@NonNull String permission) {
+        if (ActivityCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+            CTDebug(TAG, String.format(Locale.US, "CheckPermission(): Requesting '%s'.", permission));
+            outstandingPermissionsList.add(permission);
+        } else {
+            CTDebug(TAG, String.format(Locale.US, "CheckPermission(): '%s' granted.",
+                    permission));
+        }
+    }
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         if (appActivity != null) {
-            CaltopoClient.CTDebug(TAG, "onCreate() with an existing activity.");
+            CTDebug(TAG, "onCreate() with an existing activity.");
             if (appActivity != this) {
                 RestartingFlag = true;
                 /* prevent ScanningService's PendingIntent tap from starting a new instance. */
-                CaltopoClient.CTDebug(TAG, "onCreate() restarting with new activity.");
+                CTDebug(TAG, "onCreate() restarting with new activity.");
             }
         }
         appActivity = this;
         initializedCalled = false;
+        CaltopoClient.InitializeForActivityAndContext(this, getApplicationContext());
+        String archivePathVal = CaltopoClient.GetArchivePath();
+        if (null == archivePathVal) {
+            Log.d(TAG, "Querying user for archiveDir()");
+            CaltopoClient.QueryUserForArchiveDir();
+        }
 
         setContentView(R.layout.activity_debug);
         mModel = new ViewModelProvider(this).get(AircraftViewModel.class);
@@ -279,52 +300,18 @@ public class DebugActivity extends AppCompatActivity {
         });
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            CaltopoClient.CTDebug(TAG, "onCreate: Android 13");
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-                CaltopoClient.CTDebug(TAG, "onCreate: Requesting NEARBY_WIFI_DEVICES");
-                outstandingPermissionsList.add(Manifest.permission.NEARBY_WIFI_DEVICES);
-            } else {
-                CaltopoClient.CTDebug(TAG, "onCreate: NEARBY_WIFI_DEVICES granted.");
-            }
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                CaltopoClient.CTDebug(TAG, "onCreate: Requesting POST_NOTIFICATIONS");
-                outstandingPermissionsList.add(Manifest.permission.POST_NOTIFICATIONS);
-            } else {
-                CaltopoClient.CTDebug(TAG, "onCreate: POST_NOTIFICATIONS granted.");
-            }
+            CheckPermission(Manifest.permission.NEARBY_WIFI_DEVICES);
+            CheckPermission(Manifest.permission.POST_NOTIFICATIONS);
         }
 
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            CaltopoClient.CTDebug(TAG, "onCreate: Requesting ACCESS_FINE_LOCATION");
-            outstandingPermissionsList.add(Manifest.permission.ACCESS_COARSE_LOCATION);
-        } else {
-            CaltopoClient.CTDebug(TAG, "onCreate: ACCESS_COARSE_LOCATION granted.");
-        }
-
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            CaltopoClient.CTDebug(TAG, "onCreate: Requesting ACCESS_FINE_LOCATION");
-            outstandingPermissionsList.add(Manifest.permission.ACCESS_FINE_LOCATION);
-        } else {
-            CaltopoClient.CTDebug(TAG, "onCreate: ACCESS_FINE_LOCATION granted.");
-        }
+        CheckPermission(Manifest.permission.ACCESS_COARSE_LOCATION);
+        CheckPermission(Manifest.permission.ACCESS_FINE_LOCATION);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            CaltopoClient.CTDebug(TAG, "onCreate: Android 12");
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                CaltopoClient.CTDebug(TAG, "onCreate: Requesting BLUETOOTH_SCAN");
-                outstandingPermissionsList.add(Manifest.permission.BLUETOOTH_SCAN);
-            } else {
-                CaltopoClient.CTDebug(TAG, "onCreate: BLUETOOTH_SCAN granted");
-            }
-
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                CaltopoClient.CTDebug(TAG, "onCreate: Requesting BLUETOOTH_CONNECT");
-                outstandingPermissionsList.add(Manifest.permission.BLUETOOTH_CONNECT);
-            } else {
-                CaltopoClient.CTDebug(TAG, "onCreate: BLUETOOTH_CONNECT granted");
-            }
+            CheckPermission(Manifest.permission.BLUETOOTH_SCAN);
+            CheckPermission(Manifest.permission.BLUETOOTH_CONNECT);
         }
-        CaltopoClient.InitializeForActivityAndContext(this, getApplicationContext());
+
         if (!outstandingPermissionsList.isEmpty()) {
             String[] permArray = outstandingPermissionsList.toArray(new String[0]);
             ActivityCompat.requestPermissions(this, permArray, Constants.REQUEST_BULK_PERMISSIONS);
@@ -335,7 +322,7 @@ public class DebugActivity extends AppCompatActivity {
     }
 
     private void finalizeOnCreate() {
-        CaltopoClient.CTDebug(TAG, "finalizeOnCreate");
+        CTDebug(TAG, "finalizeOnCreate");
 
         WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         if (!wifiManager.isWifiEnabled()) {
@@ -350,7 +337,7 @@ public class DebugActivity extends AppCompatActivity {
             if (!bluetoothAdapter.isEnabled()) {
                 // Prompt user to turn on Bluetooth (logic continues in onActivityResult()).
                 try {
-                    CaltopoClient.CTDebug(TAG, "finalizeOnCreate(): Requesting Bluetooth Enable.");
+                    CTDebug(TAG, "finalizeOnCreate(): Requesting Bluetooth Enable.");
                     Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
                     startActivity(enableBtIntent);
                 } catch (SecurityException se) {
@@ -363,12 +350,9 @@ public class DebugActivity extends AppCompatActivity {
 
     private void initialize() {
         if (initializedCalled) return;
-        CaltopoClient.CTDebug(TAG, "initialize()");
+        CTDebug(TAG, "initialize()");
+        CaltopoClient.PermissionsGrantedWeShouldBeGoodToGo();
         initializedCalled = true;
-        String archivePathVal = CaltopoClient.GetArchivePath();
-        if (null == archivePathVal) {
-            CaltopoClient.QueryUserForArchiveDir();
-        }
         mModel.setAllAircraft(dataManager.getAircraft());
 
         final Observer<Set<AircraftObject>> listObserver = airCrafts -> {
@@ -397,12 +381,13 @@ public class DebugActivity extends AppCompatActivity {
                 for (Location location : locationResult.getLocations()) {
                     if (location != null) {
                         dataManager.receiverLocation = location;
+                        CaltopoClientMap.UpdateMyLocation(location);
                     }
                 }
             }
         };
         if (!RestartingFlag) {
-            CaltopoClient.CTDebug(TAG, String.format(Locale.US, "onCreate(): Starting ScanningService from activity 0x%x", this.hashCode()));
+            CTDebug(TAG, String.format(Locale.US, "onCreate(): Starting ScanningService from activity 0x%x", this.hashCode()));
             Intent serviceIntent = new Intent(this, ScanningService.class);
             getApplicationContext().startForegroundService(serviceIntent);
         }
@@ -446,7 +431,7 @@ public class DebugActivity extends AppCompatActivity {
         handler.removeCallbacks(runnableCode);
         if (mFusedLocationClient != null)
             mFusedLocationClient.removeLocationUpdates(locationCallback);
-        CaltopoClient.CTDebug(TAG, "onPause() archiving tracks...");
+        CTDebug(TAG, "onPause() archiving tracks...");
         archiveTracks();
         super.onPause();
     }
@@ -463,7 +448,7 @@ public class DebugActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
                                            @NonNull int[] grantResults) {
 
-        CaltopoClient.CTDebug(TAG, "In onRequestPermissionsResult()");
+        CTDebug(TAG, "In onRequestPermissionsResult()");
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == Constants.REQUEST_BULK_PERMISSIONS) {
             for (int i = 0; i < permissions.length; i++) {
@@ -472,14 +457,14 @@ public class DebugActivity extends AppCompatActivity {
                 if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
                     CaltopoClient.CTError(TAG, "onRequestPermissionsResult: Did not get " + permissions[i]);
                 } else {
-                    CaltopoClient.CTDebug(TAG, "onRequestPermissionsResult(): Received " + permissions[i]);
+                    CTDebug(TAG, "onRequestPermissionsResult(): Received " + permissions[i]);
                 }
             }
             finalizeOnCreate();
             initialize();
             return;
         }
-        CaltopoClient.CTDebug(TAG, String.format(Locale.US, "onRequestPermissionsResult(%d)", requestCode));
+        CTDebug(TAG, String.format(Locale.US, "onRequestPermissionsResult(%d)", requestCode));
     }
 
     public void showToast(String message) {
@@ -506,7 +491,7 @@ public class DebugActivity extends AppCompatActivity {
         builder.setPositiveButton("Yes", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
-                CaltopoClient.CTDebug(TAG, String.format(Locale.US, "User confirmed change track label From:'%s' to '%s'",
+                CTDebug(TAG, String.format(Locale.US, "User confirmed change track label From:'%s' to '%s'",
                         existingLabel, droneSpec.getMappedId()));
                 dialog.dismiss();
             }
@@ -517,7 +502,7 @@ public class DebugActivity extends AppCompatActivity {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 // User clicked "No", dismiss the dialog
-                CaltopoClient.CTDebug(TAG, "User cancelled track label change.");
+                CTDebug(TAG, "User cancelled track label change.");
                 dialog.dismiss();
             }
         });
@@ -537,7 +522,7 @@ public class DebugActivity extends AppCompatActivity {
         builder.setPositiveButton("Yes", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
-                CaltopoClient.CTDebug(TAG, "User confirmed intention to exit.");
+                CTDebug(TAG, "User confirmed intention to exit.");
                 finish();
             }
         });
@@ -547,7 +532,7 @@ public class DebugActivity extends AppCompatActivity {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 // User clicked "No", dismiss the dialog
-                CaltopoClient.CTDebug(TAG, "User cancelled exit.");
+                CTDebug(TAG, "User cancelled exit.");
 
                 dialog.dismiss();
                 Toast.makeText(DebugActivity.this, "Exit cancelled", Toast.LENGTH_SHORT).show();
@@ -561,7 +546,7 @@ public class DebugActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
-        CaltopoClient.CTDebug(TAG, "onBackButtonPressed()");
+        CTDebug(TAG, "onBackButtonPressed()");
         confirmUserWishesToExit();
     }
 
@@ -569,7 +554,7 @@ public class DebugActivity extends AppCompatActivity {
     public void onDestroy() {
         if (this == appActivity) {
             if (isFinishing()) {
-                CaltopoClient.CTDebug(TAG, "onDestroy() shutting down scanning service...");
+                CTDebug(TAG, "onDestroy() shutting down scanning service...");
                 Intent serviceIntent = new Intent(this, ScanningService.class);
                 stopService(serviceIntent);
                 CaltopoClient.Shutdown();
@@ -578,7 +563,7 @@ public class DebugActivity extends AppCompatActivity {
                 super.onDestroy();
                 return;
             }
-            CaltopoClient.CTDebug(TAG, "onDestroy() archiving tracks...");
+            CTDebug(TAG, "onDestroy() archiving tracks...");
             archiveTracks();
         }
         super.onDestroy();

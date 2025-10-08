@@ -5,6 +5,7 @@
 package org.opendroneid.android.data;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.io.Serializable;
 import java.util.Locale;
@@ -22,7 +23,9 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
     private String owner;
     private String model; /* This is the concise text description of the drone. */
     public long mostRecentTimeInSeconds; /* timestamp of most recent packet received */
+    private transient R2CRest ownerR2c;
     private transient CtDroneSpecListener myListener;
+    private transient CaltopoLiveTrack myLiveTrack;
 
     public CtDroneSpec() throws RuntimeException {
         throw new RuntimeException("Use one of the other constructor methods.");
@@ -57,9 +60,21 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
         if (null == ownerIn) this.owner = "";
         else this.owner = ownerIn;
     }
-    public void setDroneSpecListener(CtDroneSpecListener myListener) {
+
+    @Nullable
+    public CtDroneSpecListener setDroneSpecListener(@Nullable CtDroneSpecListener myListener) {
+        CtDroneSpecListener oldListener = this.myListener;
         this.myListener = myListener;
+        return oldListener;
     }
+
+    public void setMyR2cOwner(@Nullable R2CRest newOwnerR2c) {ownerR2c = newOwnerR2c;}
+    @Nullable
+    public R2CRest getMyR2cOwner() {return ownerR2c;}
+
+    public void setMyLiveTrack(@Nullable CaltopoLiveTrack liveTrack) {myLiveTrack = liveTrack;}
+    @Nullable
+    public CaltopoLiveTrack getMyLiveTrack() {return myLiveTrack;}
     public String setMappedId(@NonNull String newMappedId) {
         String oldString= mappedId;
         String newStr = newMappedId.replaceAll("[^a-zA-Z0-9]", "");

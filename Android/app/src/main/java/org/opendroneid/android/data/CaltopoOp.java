@@ -6,6 +6,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -36,12 +37,14 @@ public class CaltopoOp implements Future <CaltopoOp> {
     // the actual message to be sent - in case it needs to be resent:
     public CtsMethod_t method;
     public String url;
+	public Map<String, String> getParams;
+	public String ipaddr;
     public JSONObject payload;
 	public static int lastOpNum;
 
     // response to the async message execution:
     public Future<CaltopoOp> asyncFuture; // if op was scheduled for execution.
-	    
+	public int responseCode;
     public boolean goodResponse;    // Valid if receivedTimestampInMsec != 0;
     public String response;    // if receivedTimestampInMsec && goodResponse == false;
     public JSONObject responseJson; // if receivedTimestampInMsec && goodResponse == true;
@@ -113,7 +116,7 @@ public class CaltopoOp implements Future <CaltopoOp> {
     }
 	
 	// syncOp... options for blocking until completion for results:
-    @Nullable
+	@Nullable
 	public JSONObject syncOpJSONObject()
 			throws ExecutionException, InterruptedException, JSONException {
 		this.get();
@@ -124,7 +127,11 @@ public class CaltopoOp implements Future <CaltopoOp> {
 			throw new JSONException("op failed to return expected JSONObject in response.\n" + this);
 		}
 		return responseJson;
-    }
+	}
+	@Nullable
+	public void syncOp(double timeoutInSeconds)	throws ExecutionException, InterruptedException, TimeoutException {
+		this.get((long)(timeoutInSeconds * 1000), TimeUnit.MILLISECONDS);
+	}
 
 	@NonNull
 	public String responseString() {

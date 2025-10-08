@@ -28,7 +28,9 @@ import android.app.Activity;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.Resources;
 import android.net.Uri;
+import android.os.Build;
 import android.provider.DocumentsContract;
 import android.util.Log;
 
@@ -58,6 +60,8 @@ import java.util.function.Function;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.opendroneid.android.BuildConfig;
+import org.opendroneid.android.R;
 import org.opendroneid.android.app.DebugActivity;
 
 /*
@@ -119,19 +123,19 @@ class ClientClassState implements Serializable {
         return String.format(Locale.US,
                 "vers:'%d', minDist:'%d' ft, groupId:'%s', mapId:'%s',\n" +
                         "newTrackDelayInSec:%d, maxDisplayAgeInSec:%d, debugLevel:%d, " +
-                        "archivePath:%s, \n caltopoTrackFolder: '%s', caltopoDomainAndPort:%s, \n" +
+                        "archivePath: '%s', \n caltopoTrackFolder: '%s', caltopoDomainAndPort:%s, \n" +
                         "teamId: '%s', credId: '%s' credSecret: '%s', ht: %s",
                 SerialVersionUID, minDistanceInFeet, groupId, mapId,
                 newTrackDelayInSeconds, maxDisplayAgeInSeconds, debugLevel,
-                (archivePath == null) ? "<undefined>" : archivePath,
+                (archivePath == null) ? "" : archivePath,
                 caltopoTrackFolder, domainAndPort, teamId, credId, credSecret,
                 CaltopoClient.DroneSpecStringRep(droneSpecTable));
     }
 }
 
-public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
+public class CaltopoClient implements CtDroneSpecListener {
     public interface CtDroneSpecArrayMonitor {
-        public void droneSpecArrayChanged();
+        void droneSpecArrayChanged();
     }
 
 
@@ -141,20 +145,22 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
     private static final String BASE_URL = "https://caltopo.com/api/v1/position/report/";
     private static final String TAG = "CaltopoClient";
     public static final String LoadConfigFileMessage = "Open Caltopo Configuration File";
-    private static final int DebugLevelError = 0;
-    private static final int DebugLevelDebug = 1;
-    private static final int DebugLevelInfo = 2;
-    private static int DebugLevel = DebugLevelDebug;
+    public static final int DebugLevelError = 0;
+    public static final int DebugLevelDebug = 1;
+    public static final int DebugLevelInfo = 2;
+    public static int DebugLevel = DebugLevelDebug;
     private static final int ThreadPoolSize = 1;
     private static boolean WarnMissingGroupId = false;
-    private static boolean WarnMissingMapId = false;
+    private static boolean WarnMissingMapFlag = false;
+    private static boolean WarnConnectingToMapFlag = false;
     private static CtAlertDialog MapIdChangeDialog;
     private static Hashtable<String, CaltopoClient> ClientMap;
     private static ExecutorService ExecutorPool = null;
     private static ClientClassState Ccstate = null;
     private static AppCompatActivity AppActivity = null;
     private static Context AppContext = null;
-    private static final String MyStateFileName = TAG + ".ser";
+    private static final String MyStateFileName = TAG + BuildConfig.BUILD_TIME + ".ser";
+    private static String LogFilePath;
     private static ActivityResultLauncher<Intent> QueryArchivePath;
     private static ActivityResultLauncher<Intent> LoadConfigFileLauncher;
     private static OutputStream DebugOutputStream;
@@ -164,14 +170,13 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
     private String trackLabel;
     private static CaltopoClientMap MyCaltopoClientMap;
     private CtAlertDialog mappedIdAlert;
-    private static R2CRest r2cRest = null;
 
     // CaltopoClient INSTANCE VARS:=
     private final String remoteId;
     private CtDroneSpec droneSpec;
     private CaltopoLiveTrack liveTrack;
 
-    private DelayedExec idleTimeoutPoll;
+    private final DelayedExec idleTimeoutPoll;
 
 
     public CaltopoClient(String rid) throws RuntimeException {
@@ -189,10 +194,13 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
             if (null != DroneSpecArrayMonitor) DroneSpecArrayMonitor.droneSpecArrayChanged();
         }
         droneSpec.setDroneSpecListener(this);
+        idleTimeoutPoll = new DelayedExec();
     }
     public static void SetDroneSpecMonitor(CtDroneSpecArrayMonitor newMonitor) {
         DroneSpecArrayMonitor = newMonitor;
     }
+
+    public static int GetDebugLevel() {return DebugLevel;}
 
     public void permitMappedIdChangeResponse() {
         if (mappedIdAlert.getResponse()) {
@@ -227,38 +235,24 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
     }
 
     public static void CTLog(String type, String tag, String msg) {
-        if (null == AppActivity || null == AppContext) {
+        if (null == AppActivity || null == AppContext || null == DebugOutputStream) {
             // attempt no logging to file without app context (caused by
             // logging from ScanningService during screen rotate).
             return;
         }
-        ClientClassState ccs = GetState();
         if (BytesWrittenToDebugOutputStream >= MAX_SIZE_DEBUG_OUTPUT) return;
 
-        if (null == ccs.archivePath || null == AppContext) return;
-        if (null == DebugOutputStream) try {
-            DocumentFile todaysArchiveDir = GetTodaysTrackDir();
-            String filepath = "Log" + TimeDatestampString();
-            if (null != todaysArchiveDir) {
-                DocumentFile dataFilepath = todaysArchiveDir.createFile("text/plain", filepath);
-                ContentResolver resolver = AppContext.getContentResolver();
-                DebugOutputStream = (resolver.openOutputStream(dataFilepath.getUri()));
-            }
-            Log.i(TAG, "CTInfo: Writing logs to " + filepath);
-        } catch (IOException e) {
-            Log.e(TAG, "CTError: Not able to open DebugOutputStream: " + e);
-            return;
-        }
-
         try {
-            msg = String.format(Locale.US, "%s@%.3f:%s  %s\n  ", type,
-                    (double)System.currentTimeMillis()/1000.0, tag, msg);
+            if (null != type && null != tag) {
+                msg = String.format(Locale.US, "%s@%.3f:%s  %s\n  ", type,
+                        (double) System.currentTimeMillis() / 1000.0, tag, msg);
+            }
             byte[] bytes = msg.getBytes();
             BytesWrittenToDebugOutputStream += bytes.length;
             DebugOutputStream.write(bytes);
             DebugOutputStream.flush();
         } catch (IOException e) {
-            Log.e(TAG, String.format(Locale.US, "CTError: CTLog(): Not able to write '%s' - %s", ccs.archivePath, e));
+            Log.e(TAG, String.format(Locale.US, "CTError: CTLog(): Not able to write '%s' - %s", LogFilePath, e));
         }
         if (BytesWrittenToDebugOutputStream >= MAX_SIZE_DEBUG_OUTPUT) {
             Log.e(TAG, "CTError: CTLog(): Sorry.  Maximum debugging output file size reached.  Future bits will be tossed on the floor.");
@@ -300,6 +294,7 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
 
     public static void CTError(String tag, String msg, Exception e) {
         StringBuilder str = new StringBuilder();
+
         str.append(msg);
         str.append("\n  ");
         str.append(ExceptionToString(e));
@@ -318,8 +313,10 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
     public static DocumentFile GetTodaysTrackDir() {
         String archivePath = GetArchivePath();
         DocumentFile todaysDir = null;
-        if (null != archivePath) try {
+        if (null != archivePath && null != AppContext) try {
+            ContentResolver contentResolver = AppContext.getContentResolver();
             Uri treeUri = Uri.parse(archivePath);
+            contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
             DocumentFile archiveDir = DocumentFile.fromTreeUri(AppContext, treeUri);
             if (null != archiveDir) {
                 SimpleDateFormat sdf = new SimpleDateFormat("ddMMMyyyy", Locale.US);
@@ -382,6 +379,7 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
             MyCaltopoClientMap.setMapId(newMapId);
             ccs.mapId = newMapId;
             ArchiveState("user changed mapId");
+            CheckBringUpMap();
         }
     }
 
@@ -413,12 +411,13 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
             if (null != MyCaltopoClientMap) {
                 MapIdChangeDialog = new CtAlertDialog("Terminate map connection",
                         "Do you want to terminate the existing map connection?",
-                        () -> {confirmMapIdChange(trimmedMapId);});
+                        () -> confirmMapIdChange(trimmedMapId));
             } else {
                 String msg = String.format(Locale.US, "mapId changed from '%s' to '%s'",
                         ccs.mapId, trimmedMapId);
                 ccs.mapId = trimmedMapId;
                 ArchiveState(msg);
+                CheckBringUpMap();
             }
         }
         return ccs.mapId;
@@ -434,6 +433,7 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
         if (ccs.useDirectFlag != flag) {
             ccs.useDirectFlag = flag;
             ArchiveState("useDirectChanged to " + flag);
+            CheckBringUpMap();
         }
     }
 
@@ -669,12 +669,25 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
                 });
     }
 
+    public static void ConnectToMap() {
+        if (null != MyCaltopoClientMap) return;
+        String mapId = GetMapId();
+        boolean directFlag = GetUseDirectFlag();
+        if (null != mapId && !mapId.isEmpty() && directFlag) {
+            MyCaltopoClientMap = new CaltopoClientMap(GetCaltopoConfig(), GetMapId(), GetTrackFolderName());
+        }
+    }
+
+    public static void PermissionsGrantedWeShouldBeGoodToGo() {
+        InitArchiveDir();
+        CheckBringUpMap();
+    }
     public static void InitializeForActivityAndContext(AppCompatActivity activity, Context ctxt) {
-        CTDebug(TAG, "InitializeForActivityAndContext()");
         AppActivity = activity;
         AppContext = ctxt;
+        GetState();
+        CTDebug(TAG, "InitializeForActivityAndContext()");
         try {
-            GetState();
             QueryArchivePath = InitLauncherForArchiveDir();
             LoadConfigFileLauncher = InitLauncherForConfigFile(LoadConfigFileMessage, CaltopoClient::LoadConfigFile);
         } catch (Exception e) {
@@ -695,10 +708,6 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
         if (null == client) {
             client = new CaltopoClient(remoteId);
             ClientMap.put(remoteId, client);
-        }
-        if (null == r2cRest) {
-            r2cRest = new R2CRest(client);
-            // FIXME: add rendezvoux marker for this app at current location that can be easily removed
         }
         return client;
     }
@@ -812,6 +821,40 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
         return ccs.archivePath;
     }
 
+    public static void CheckBringUpMap() {
+        if (GetUseDirectFlag() && null != DebugOutputStream && null != GetGroupId() || null != GetMapId()) {
+            R2CRest.Init();
+            ConnectToMap();
+        }
+    }
+
+    public static void InitArchiveDir() {
+        if (null == DebugOutputStream && null != GetArchivePath()) try {
+            DocumentFile todaysArchiveDir = GetTodaysTrackDir();
+            String filepath = "Log" + TimeDatestampString();
+            if (null != todaysArchiveDir) try {
+                DocumentFile dataFilepath = todaysArchiveDir.createFile("text/plain", filepath);
+                ContentResolver resolver = AppContext.getContentResolver();
+                DebugOutputStream = (resolver.openOutputStream(dataFilepath.getUri()));
+            } catch (Exception e) {
+                CTError(TAG, "InitArchiveDir() raised: ", e);
+            }
+
+            if (null != DebugOutputStream) {
+                LogFilePath = todaysArchiveDir + "/" + filepath;
+                Resources resources = AppActivity.getResources();
+                String appVers = resources.getString(R.string.app_version);
+                final String header = "########################################################################\n";
+                CTDebug(TAG, String.format(Locale.US,
+                        "Logfile is up\n%s#  RID2Caltopo %s(%s) running on Android OS v%s\n#  Writing logs to: %s\n%s",
+                        header, appVers, BuildConfig.BUILD_TIME, Build.VERSION.RELEASE, LogFilePath, header));
+                CheckBringUpMap();
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "CTError: Not able to open DebugOutputStream: " + e);
+        }
+    }
     public static void SetArchivePath(String path)
             throws RuntimeException {
         if (null == path || path.isEmpty()) {
@@ -820,6 +863,7 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
         ClientClassState ccs = GetState();
         ccs.archivePath = path;
         ArchiveState("archivePath changed.");
+        InitArchiveDir();
     }
 
     /* SetGroupId():
@@ -837,6 +881,7 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
         ccs.groupId = trimmedGid;
         WarnMissingGroupId = false;
         ArchiveState("groupId changed."); // save any time there is a chg.
+        CheckBringUpMap();
         return ccs.groupId;
     }
 
@@ -845,7 +890,7 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
             ExecutorPool.shutdownNow();
         }
         if (null != MyCaltopoClientMap) {
-            MyCaltopoClientMap.Shutdown();
+            CaltopoClientMap.Shutdown();
         }
         if (null != DebugOutputStream) {
             try {
@@ -924,21 +969,6 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
         return droneSpec.getMappedId() + "_" + TimeDatestampString();
     }
 
-
-    public void r2cRestFgConnect(@Nullable String publicIP) {
-        if (null != publicIP) {
-            CTDebug(TAG, "r2c connected as " + publicIP);
-        } else {
-            CTError(TAG, "r2c not able to determine public IP.");
-        }
-        CaltopoClientMap.SetMyPublicIp(publicIP);
-    }
-
-    public JSONObject r2cRestBgMessage(@NonNull String ipaddr,
-                                       @NonNull String path, JSONObject message) {
-        return null;
-    }
-
     /* this is used when Caltopo Session is not used, requiring user to set up the
      * LiveTrack in Caltopo web interface.
      */
@@ -975,9 +1005,7 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
             if (null == ExecutorPool) {
                 ExecutorPool = Executors.newFixedThreadPool(ThreadPoolSize);
             }
-            ExecutorPool.submit(() -> {
-                bgPublishLive(groupId, droneSpec.getMappedId(), lat, lng);
-            });
+            ExecutorPool.submit(() -> bgPublishLive(groupId, droneSpec.getMappedId(), lat, lng));
         } catch (Exception e) {
             CTError(TAG, "executorPool.submit() raised:", e);
             if (null != ExecutorPool) {
@@ -1022,7 +1050,7 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
                 } else {
                     long delayInMsec = maxIdleDelayInMilliseconds - idleDurationInMilliseconds;
                     CTInfo(TAG, String.format(Locale.US, "checkIdleTime(%s) Restarting timer for another %.3f seconds.",
-                            trackLabel, (double) (delayInMsec / 1000.0)));
+                            trackLabel, delayInMsec / 1000.0));
                     idleTimeoutPoll.start(this::checkIdleTime, delayInMsec, 0);
                 }
             }
@@ -1035,7 +1063,7 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
  *  vary from one source to the next.  Do a basic sanity check on anything before
  *  relying on it.
  */
-    public void newWaypoint(double lat, double lng, long altitudeInMeters, long droneTimestampInSeconds, String transportType) {
+    public void newWaypoint(double lat, double lng, long altitudeInMeters, long droneTimestampInMilliseconds, String transportType) {
         boolean useDirectFlag = GetUseDirectFlag();
 
         if (null == trackLabel) {
@@ -1051,7 +1079,7 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
                     trackLabel, transportType, altitudeInMeters, lat, lng));
             return; // only interested in recording real waypoints thank-you very much
         }
-        boolean archived = WaypointTrack.AddWaypointForTrack(trackLabel, lat, lng, altitudeInMeters, droneTimestampInSeconds, transportType);
+        boolean archived = WaypointTrack.AddWaypointForTrack(trackLabel, lat, lng, altitudeInMeters, droneTimestampInMilliseconds, transportType);
         if (archived) {
             String groupId = GetGroupId();
             if (groupId.isEmpty()) {
@@ -1064,27 +1092,30 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
 
             if (useDirectFlag) {
                 String mapId = GetMapId();
-                if (null == MyCaltopoClientMap) {
-                    MyCaltopoClientMap = new CaltopoClientMap(GetCaltopoConfig(), mapId, GetTrackFolderName());
-                }
                 if (mapId.isEmpty()) {
-                    if (!WarnMissingMapId) {
+                    if (!WarnMissingMapFlag) {
                         ShowToast("Can't forward waypoint to caltopo - 'mapId' not specified in Caltopo Config panel.");
-                        WarnMissingMapId = true;
+                        WarnMissingMapFlag = true;
                     }
                     return;
-                } else WarnMissingMapId = false;
+                } else WarnMissingMapFlag = false;
 
+                if (null == MyCaltopoClientMap || !MyCaltopoClientMap.mapIsUp()) {
+                    if (!WarnConnectingToMapFlag) {
+                        ShowToast("Connecting to map...");
+                        WarnConnectingToMapFlag = true;
+                    }
+                    return;
+                } else WarnConnectingToMapFlag = false;
 
                 if (null == liveTrack) {
-                    liveTrack = new CaltopoLiveTrack(MyCaltopoClientMap, trackLabel, GetGroupId(), droneSpec.toString());
+                    liveTrack = new CaltopoLiveTrack(MyCaltopoClientMap, trackLabel, GetGroupId(), droneSpec, lat, lng, droneTimestampInMilliseconds);
                 } else if (!liveTrack.isActive()) {
                     liveTrack.startNewTrack(trackLabel);
                 }
-                liveTrack.publishDirect(lat, lng, altitudeInMeters);
+                liveTrack.publishDirect(lat, lng, altitudeInMeters, droneTimestampInMilliseconds);
 
                 // Use the idleTimeoutPoll to identify dead tracks.
-                if (null == idleTimeoutPoll) idleTimeoutPoll = new DelayedExec();
                 if (!idleTimeoutPoll.isRunning()) {
                     idleTimeoutPoll.start(this::checkIdleTime,
                             GetNewTrackDelayInSeconds() * 1000, 0);
@@ -1098,6 +1129,5 @@ public class CaltopoClient implements CtDroneSpecListener, R2CRest.Listener {
             }
         }
         droneSpec.mostRecentTimeInSeconds = System.currentTimeMillis() / 1000;
-        return;
     }
 }

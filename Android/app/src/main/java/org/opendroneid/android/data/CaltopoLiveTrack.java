@@ -19,41 +19,94 @@ public class CaltopoLiveTrack {
     private static CaltopoSession Csp;
     private static CtLineProperty ArchiveTrackLineProp;
     private static JSONObject R2cPeers;
+    private static SimpleMovingAverage CaltopoRttInMsec;
     private CaltopoOp startLiveTrackOp;
     private CaltopoOp liveTrackOp;
     private String liveTrackId;
     private LinkedList<double[]> linePoints; // array of arrays of [lat,lng] pairs
     private int linePointsSentCount;
     private String folderId;
-    private CaltopoClientMap myMap;
+    private final CaltopoClientMap myMap;
     private String myTrackLabel;
     private boolean active;
+    private boolean locallyOwnedTrack;
+    private boolean blocked; // pending owner determination through discovery.
+    private R2CRest r2cClient;
     private String myGroupId;
-    private String droneDescription;
+    private CtDroneSpec droneSpec;
+
+    public static long GetCaltopoRttInMsec() { return CaltopoRttInMsec.get();}
+
+    public static class SimpleMovingAverage {
+        private final long[] window;
+        private int ix;
+        private long sum;
+
+        public SimpleMovingAverage(int size) {
+            window = new long[size];
+            sum = 0;
+        }
+
+        public long next(long val) {
+            sum -= window[ix];
+            sum += val;
+            window[ix++] = val;
+            ix = ix % window.length;
+            return sum / ((0 == ix) ? window.length : ix);
+        }
+        public long get() {return sum / ix;}
+    }
 
     public CaltopoLiveTrack(@NonNull CaltopoClientMap map, @NonNull String trackLabel, @NonNull String groupId,
-                            @NonNull String droneDescription)
+                            @NonNull CtDroneSpec droneSpec, double lat, double lng, long droneTimestampInMsec)
             throws RuntimeException {
         if (trackLabel.isEmpty() || groupId.isEmpty()) {
             throw new RuntimeException("CaltopoLiveTrack(): trackLabel and groupId are both required.");
         }
+        if (null == CaltopoRttInMsec) CaltopoRttInMsec = new SimpleMovingAverage(10);
         myMap = map;
         myTrackLabel = trackLabel;
-        active = true;
         myGroupId = groupId;
-        this.droneDescription = droneDescription;
+        active = true;
+        this.droneSpec = droneSpec;
+        droneSpec.setMyLiveTrack(this);
+        if (null == linePoints) linePoints = new LinkedList<>();
+        double[] point = {lat, lng, (double)droneTimestampInMsec};
+        linePoints.add(point);
         if (null == ArchiveTrackLineProp) ArchiveTrackLineProp =
                 new CtLineProperty("2", "1", "#ff00ff", "solid");
         if (null == Csp) {
             Csp = myMap.session();
         }
+        switch (R2CRest.StatusForNewRemoteId(droneSpec, lat, lng, droneTimestampInMsec)) {
+            case forwardToClient -> r2cClient = R2CRest.ClientForRemoteId(droneSpec.getRemoteId());
+            case pending -> blocked = true;
+            case okToPublishLocally -> locallyOwnedTrack = true;
+        }
+
         startNewTrack(trackLabel);
     }
 
-    /**  Archive this track segment on Caltopo.
-     * FIXME: If linePointsSentCount < linePoints.size(), then don't
+    public void r2cSetClient(R2CRest client) {
+        this.r2cClient = client;
+        blocked = false;
+    }
+
+    public void r2cPublishDirect() {
+        locallyOwnedTrack = true;
+        blocked = false;
+        startNewTrack(myTrackLabel);
+    }
+
+    /**  Archive this track segment on Caltopo if we're the owner.
      */
     public void archiveTrackOnCaltopo() {
+        if (!locallyOwnedTrack) {
+            // We don't own this track, so ignore request to archive on Caltopo.
+            CTDebug(TAG, "archiveTrackOnCaltopo(): attempt to archive a track that is owned by a remote R2C ignored.");
+            return;
+        }
+
         int size = (linePoints != null) ? linePoints.size() : 0;
         if (0 == size || null == liveTrackId) {
             CTDebug(TAG, String.format(Locale.US,
@@ -151,9 +204,14 @@ public class CaltopoLiveTrack {
         processNextWaypoint();
     }
 
-    public void publishDirect(double lat, double lng, long altitudeInMeters) {
+    /* Now this is where things get interesting.   Starting out, the first time we
+     * see a new drone, we don't know if it is ours or one owned by another R2C
+     * instance that is just no, so...
+     * We need to consult the R2C database to make that determination.
+     */
+    public void publishDirect(double lat, double lng, long altitudeInMeters, long droneTimestampInMillisec) {
         if (null == linePoints) linePoints = new LinkedList<>();
-        double[] point = {lat, lng};
+        double[] point = {lat, lng, (double)droneTimestampInMillisec};
         linePoints.add(point);
 
         CTDebug(TAG, String.format(Locale.US,
@@ -164,10 +222,6 @@ public class CaltopoLiveTrack {
             return;
         }
         folderId = myMap.getFolderId();
-        if (null == folderId || folderId.isEmpty()) {
-            CTDebug(TAG, "map says it's up, but folderId not available.");
-            return;
-        }
         if (null == liveTrackId  && null == startLiveTrackOp) {
             startNewTrack(myTrackLabel);
             return;
@@ -175,22 +229,22 @@ public class CaltopoLiveTrack {
         processNextWaypoint();
     }
 
-
     public void processNextWaypoint() {
         if (!active) {
             CTDebug(TAG, "processNextWaypoint(): no longer active - stopping.");
             return; // signals for send no more waypoints.
         }
         if (null == liveTrackOp || liveTrackOp.isDone()) {
+            if (null != liveTrackOp && liveTrackOp.isDone()) {
+                CaltopoRttInMsec.next(liveTrackOp.roundTripTimeInMsec());
+            }
             try {
                 int pointCount = linePoints.size();
                 if (linePointsSentCount < pointCount) {
                     double[] point = linePoints.get(linePointsSentCount++);
-                    CTDebug(TAG, String.format(Locale.US, "processNextWaypoint(%s-%s#%d): adding %.7f,%.7f to LiveTrack ",
-                            myGroupId, myTrackLabel, linePointsSentCount, point[0], point[1]));
+                    CTDebug(TAG, String.format(Locale.US, "processNextWaypoint(%s-%s#%d): adding %.7f,%.7f to LiveTrack.  Avg rtt is %.3f seconds.",
+                            myGroupId, myTrackLabel, linePointsSentCount, point[0], point[1], (double)CaltopoRttInMsec.get() / 1000.0));
                     liveTrackOp = Csp.addLiveTrackPoint(myGroupId, myTrackLabel, point[0], point[1], this::processNextWaypoint);
-                } else {
-                    CTDebug(TAG, "processNextWaypoint() no more waypoints in queue. blocking.");
                 }
             } catch (Exception e) {
                 CTError(TAG, "processNextWaypoint(): addLiveTrackPoint() raised: ", e);

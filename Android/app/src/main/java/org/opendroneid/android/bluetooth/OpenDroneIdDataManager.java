@@ -98,36 +98,37 @@ public class OpenDroneIdDataManager {
         CaltopoClient client = CaltopoClient.ClientForRemoteId(idStr);
         LocationData location = ac.getLocation();
         if (null != location) {
-            long timestampInSeconds = (long)location.getLocationTimestamp();
+            long timestampInTenthsOfASecond = (long)location.getLocationTimestamp();
             /* timestampInSeconds from UAS is for the current hour based on gps, so accurate
                w/in the current hour only.  Here's the problem: Rx UAS timestamp of 3599.9
                (i.e. .1 second before the next hour).  With delays in transmitting/receiving the
                UAS timestamp, it arrives here after the hour.  So if we blindly add it to the current
-               hour, we're going to see a big discontinuity in the flow of timestamps.  One way to
-               prevent this is to check the arriving timestamp and if it's close to rolling over,
-               then subtract 60 seconds (more than worst-case delay) from our epoch timestamp before
-               calculating the seconds for the hour.
+               hour, we're going to occasionally see a big discontinuity in the flow of timestamps.
+               One way to prevent this is to check the arriving timestamp and if it's close to
+               rolling over, then subtract 60 seconds (more than worst-case delay) from our epoch
+               timestamp before calculating the seconds for the hour.
              */
-            if (timestampInSeconds != 0xffff) {
+            long timestampInMilliseconds;
+            if (timestampInTenthsOfASecond != 0xffff) {
                 Instant currentInstant = Instant.now();
                 // Get the epoch second (seconds since 1970-01-01T00:00:00Z)
                 long epochSecond = currentInstant.getEpochSecond();
                 long epochSecondHr;
-                timestampInSeconds = timestampInSeconds / 10;
-                if (timestampInSeconds >= (60 * 60)) {
-                    CaltopoClient.CTError(TAG, String.format(Locale.US, "Received invalid TimestampInSeconds:%d", timestampInSeconds));
-                    timestampInSeconds = timestampInSeconds % (60 * 60);
+                timestampInMilliseconds = timestampInTenthsOfASecond * 100;
+                if (timestampInMilliseconds >= (60 * 60 * 1000)) {
+                    CaltopoClient.CTError(TAG, String.format(Locale.US, "Received invalid TimestampInTenthsOfASecond:%d", timestampInTenthsOfASecond));
+                    timestampInMilliseconds = timestampInMilliseconds % (60 * 60 * 100);
                 }
-                if (timestampInSeconds > (59*60)) {
+                if (timestampInMilliseconds > (59*60*1000)) {
                     epochSecondHr = ((epochSecond - 60) / (60 * 60)) * (60 * 60);
                 } else {
                     epochSecondHr = (epochSecond / (60 * 60)) * (60 * 60);
                 }
                 // Log.d(TAG, String.format(Locale.US, "TimestampIn:%f, epochSeconds:%d, epochSecondsHr:%d, timestampOut:%f",
                 //        timestampInSeconds, epochSecond, epochSecondHr, (double)epochSecondHr + timestampInSeconds));
-                timestampInSeconds += epochSecondHr;
+                timestampInMilliseconds += epochSecondHr * 1000;
             } else {
-                timestampInSeconds = 0; // not yet valid, so just set to zero.
+                timestampInMilliseconds = 0; // not yet valid, so just set to zero.
             }
             double lat = location.getLatitude();
             double lng = location.getLongitude();
@@ -138,7 +139,7 @@ public class OpenDroneIdDataManager {
                             "TimestampIn:%d, Altitude:%d at %.5f,%.5f",
                     idStr, transportType, timestampInSeconds, altitudeInMeters, lat, lng));
              */
-            client.newWaypoint(lat, lng, altitudeInMeters, timestampInSeconds, transportType);
+            client.newWaypoint(lat, lng, altitudeInMeters, timestampInMilliseconds, transportType);
         }
     }
 

@@ -76,6 +76,5 @@ to be uncommented.
         app:showAsAction="never" />
     <item
         android:id="@+id/version"
-        android:title="@string/app_version"
-        app:showAsAction="never" />
+        android:title="@string/app_version"/>
 </menu>
