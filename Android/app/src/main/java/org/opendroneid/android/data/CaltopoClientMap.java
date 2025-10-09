@@ -162,6 +162,7 @@ public class CaltopoClientMap {
         }
         archiveFolderId = archiveFolderIdOp.id();
         CTDebug(TAG, String.format(Locale.US, "archive folder id is %s", archiveFolderId));
+        if (null != folderId && null != archiveFolderId) mapIsUp = true;
         lookForOldShapes();
     }
 
@@ -174,6 +175,7 @@ public class CaltopoClientMap {
         }
         folderId = folderIdOp.id();
         CTDebug(TAG, String.format(Locale.US, "track folder id is %s", folderId));
+        if (null != folderId && null != archiveFolderId) mapIsUp = true;
     }
 
     /* Parse the feature set returned by the openMap()
@@ -382,6 +384,11 @@ public class CaltopoClientMap {
         float[] dbResult = {Float.NaN};
         double accuracyInMeters = 0.0;
 
+        if (!mapIsUp) {
+            CTDebug(TAG, "processPeerList(): waiting for map processing to complete...");
+            DelayedExec.RunAfterDelayInMsec(this::processPeerList, 1000);
+            return;
+        }
         if (null == myIpAddr && waitForGpsAccuracy++ < 5) {
             CTDebug(TAG, "processPeerList(): waiting for internet connectivity...");
             DelayedExec.RunAfterDelayInMsec(this::processPeerList, 1000);
@@ -492,7 +499,7 @@ public class CaltopoClientMap {
                         "R2C", "radiotower", folderId, MyUUID, prop, this::myMarkerCompleted);
             }
         }
-        mapIsUp = true;
+        if (null != folderId && null != archiveFolderId) mapIsUp = true;
     }
 
     private void myMarkerCompleted() {
