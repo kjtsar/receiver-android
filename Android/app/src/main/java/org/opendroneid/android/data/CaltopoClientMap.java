@@ -384,6 +384,7 @@ public class CaltopoClientMap {
         float[] dbResult = {Float.NaN};
         double accuracyInMeters = 0.0;
 
+        if (null != folderId && null != archiveFolderId) mapIsUp = true;
         if (!mapIsUp) {
             CTDebug(TAG, "processPeerList(): waiting for map processing to complete...");
             DelayedExec.RunAfterDelayInMsec(this::processPeerList, 1000);
