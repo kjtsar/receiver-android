@@ -9,11 +9,12 @@ import android.database.DataSetObserver;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
-import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.ListAdapter;
 import android.widget.ListView;
@@ -35,7 +36,6 @@ import java.util.ArrayList;
 import java.util.Locale;
 
 class DroneSpecViewHolder {
-    private View convertView;
     public TextView labelText;
     public EditText mappedEditText;
     public EditText orgEditText;
@@ -45,9 +45,7 @@ class DroneSpecViewHolder {
     public long lastMsgCount;
     public CaltopoClient client;
 
-    DroneSpecViewHolder(View convertView) {
-        this.convertView = convertView;
-    }
+    DroneSpecViewHolder() {}
 }
 enum ET_Field_t {
     ET_MAPPED_ID,
@@ -56,17 +54,35 @@ enum ET_Field_t {
     ET_OWNER,
 }
 
-class MyEditTextWatcher implements TextWatcher {
+class MyEditTextWatcher implements TextWatcher, TextView.OnEditorActionListener {
     private static final String TAG = "MyEditTextWatcher";
-    private static final long delayInMsec = 10000;
+    private static final long delayInMsec = 5000;
     private EditText editText;
     private String setValue;
+    private String newValue;
     private ET_Field_t field;
     private CtDroneSpec droneSpec;
-    private DelayedExec delayedExec;
-    private boolean pendingChange;
+    private final DelayedExec delayedExec;
     private int cursorPosition;
 
+    @Override
+    public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
+        MyEditTextWatcher textsWatcher = (MyEditTextWatcher)v.getTag();
+        if (textsWatcher != this) {
+            CTDebug(TAG, "onEditorAction() from a different view.");
+            return false;
+        }
+        CTInfo(TAG, String.format(Locale.US, "onEditorAction() id:%d, keyEvent: %s", actionId, event.toString()));
+
+        // FIXME: Can we be guaranteed to get one of these actions when our text looses focus for any reason?
+        // It would be extra nice to get rid of the stupid delay loop altogether...
+        if (actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_ACTION_NEXT ||
+                actionId == EditorInfo.IME_ACTION_PREVIOUS) {
+            textHasFinishedChanging();
+            return true;
+        }
+        return false;
+    }
 
     public void setTextValue(String stringValue) {
         setValue = stringValue;
@@ -87,48 +103,40 @@ class MyEditTextWatcher implements TextWatcher {
             editText.addTextChangedListener(this);
         }
     }
-    public MyEditTextWatcher() {}
+    public MyEditTextWatcher() {delayedExec = new DelayedExec();}
     public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
     public void onTextChanged(CharSequence s, int start, int before, int count) {
-        if (pendingChange) delayedExec.stop();
+        delayedExec.stop();
     }
     public void afterTextChanged(Editable e) {
-        String newValue = e.toString();
+        newValue = e.toString().trim();
         CTDebug(TAG, String.format(Locale.US, "afterTextChanged(0x%x) has detected change from:'%s' to:'%s'",
                 System.identityHashCode(this), setValue, newValue));
-        if (null == delayedExec) {
-            delayedExec = new DelayedExec();
-        }
-        Runnable runnable = () -> {textHasFinishedChanging(e.toString().trim());};
-        pendingChange = true;
         cursorPosition = editText.getSelectionStart();
-        CTDebug(TAG, String.format(Locale.US, "set cursorPosition to selectionStart(%d), selectionEnd(%d)",
+        CTInfo(TAG, String.format(Locale.US, "set cursorPosition to selectionStart(%d), selectionEnd(%d)",
                 cursorPosition, editText.getSelectionEnd()));
-        delayedExec.start(runnable, delayInMsec, delayInMsec);
+        delayedExec.start(this::textHasFinishedChanging, delayInMsec, 0);
     }
 
     @Override
     @NonNull
     public String toString() {
         return String.format(Locale.US,
-                "TextWatcher(0x%x): %s sv:'%s' pending:'%s'", System.identityHashCode(this),
-                field.toString(), setValue, pendingChange);
+                "TextWatcher(0x%x): %s setValue:'%s' newValue:'%s'", System.identityHashCode(this),
+                field.toString(), setValue, newValue);
     }
 
-    static MyEditTextWatcher SetupWatcher(EditText editText, ET_Field_t field, CtDroneSpec droneSpec) {
+    static void SetupWatcher(@NonNull EditText editText, ET_Field_t field,
+                                          @NonNull CtDroneSpec droneSpec) {
         MyEditTextWatcher textWatcher;
         if (editText.getTag() instanceof MyEditTextWatcher) {
             textWatcher = (MyEditTextWatcher)editText.getTag();
-            if (textWatcher.pendingChange) {
-                CTDebug(TAG, "SetupWatcher(): terminating pending.");
-                textWatcher.delayedExec.stop();
-                textWatcher.pendingChange = false;
-            }
         } else {
             textWatcher = new MyEditTextWatcher();
             editText.setTag(textWatcher);
             textWatcher.editText = editText;
         }
+        // load the current value of the field from the dronespec:
         textWatcher.setTextValue((switch (field) {
             case ET_MAPPED_ID -> droneSpec.getMappedId();
             case ET_MODEL -> droneSpec.getModel();
@@ -137,12 +145,15 @@ class MyEditTextWatcher implements TextWatcher {
                 }));
         textWatcher.field = field;
         textWatcher.droneSpec = droneSpec;
-
-        return textWatcher;
     }
 
-    private void textHasFinishedChanging(String newValue) {
-        pendingChange = false;
+    private void textHasFinishedChanging() {
+        delayedExec.stop();
+        if (newValue.equals(setValue)) {
+            CTDebug(TAG, "textHasFinishedChanging(): no change detected.");
+            return;
+        }
+
         String approved = switch (field) {
             case ET_MAPPED_ID -> droneSpec.setMappedId(newValue);
             case ET_MODEL -> droneSpec.setModel(newValue);
@@ -361,7 +372,7 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, Calt
             viewHolder = (DroneSpecViewHolder) convertView.getTag();
         } else {
             convertView = inflater.inflate(R.layout.listitem_ctmap, parent, false);
-            viewHolder = new DroneSpecViewHolder(convertView);
+            viewHolder = new DroneSpecViewHolder();
             viewHolder.labelText = convertView.findViewById(R.id.ct_mapLabel);
             viewHolder.mappedEditText = convertView.findViewById(R.id.ct_mapText);
             viewHolder.orgEditText = convertView.findViewById(R.id.org);
@@ -376,7 +387,6 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, Calt
         long unsavedMsgCount = viewHolder.client.unsavedMsgCount();
         viewHolder.msgCountText.setText(String.format(Locale.US, "%d", unsavedMsgCount));
         viewHolder.labelText.setText(ds.getRemoteId());
-
         MyEditTextWatcher.SetupWatcher(viewHolder.mappedEditText, ET_Field_t.ET_MAPPED_ID, ds);
         MyEditTextWatcher.SetupWatcher(viewHolder.orgEditText, ET_Field_t.ET_ORG, ds);
         MyEditTextWatcher.SetupWatcher(viewHolder.ownerEditText, ET_Field_t.ET_OWNER, ds);
@@ -446,12 +456,6 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, Calt
     /** Build viewMap for the gridview using remoteIds that have been seen in the past day.
      *
      */
-    @SuppressWarnings("unchecked")
-    private void buildViewMap() {
-        long ageInSec = CaltopoClient.GetMaxDisplayAgeInSeconds();
-        currentDroneSpecs = CaltopoClient.GetSortedCurrentDroneSpecArray(ageInSec);
-    }
-
     public void updateViewMaps() {
         mapListView.invalidateViews();
     }
@@ -524,19 +528,16 @@ public class CaltopoSettings extends DialogFragment implements TextWatcher, Calt
         directToggle.setChecked(useDirect);
         mapIdText.setEnabled(useDirect);
 
-        directToggle.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
-                // This block of code will be executed when the checked state changes
-                CTDebug(TAG, "directToggle is " + isChecked);
-                if (isChecked) {
-                    runCaltopoDirectConfigPanel();
-                    mapIdText.setText(CaltopoClient.GetMapId());
-                }
-                mapIdText.setEnabled(isChecked);
-                CaltopoClient.SetUseDirect(isChecked);
-                updateViewMaps();
+        directToggle.setOnCheckedChangeListener((compoundButton, isChecked) -> {
+            // This block of code will be executed when the checked state changes
+            CTDebug(TAG, "directToggle is " + isChecked);
+            if (isChecked) {
+                runCaltopoDirectConfigPanel();
+                mapIdText.setText(CaltopoClient.GetMapId());
             }
+            mapIdText.setEnabled(isChecked);
+            CaltopoClient.SetUseDirect(isChecked);
+            updateViewMaps();
         });
 
         CaltopoClient.SetDroneSpecMonitor(this);

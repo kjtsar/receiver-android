@@ -133,7 +133,7 @@ class ClientClassState implements Serializable {
     }
 }
 
-public class CaltopoClient implements CtDroneSpecListener {
+public class CaltopoClient implements CtDroneSpec.CtDroneSpecListener {
     public interface CtDroneSpecArrayMonitor {
         void droneSpecArrayChanged();
     }
@@ -169,7 +169,6 @@ public class CaltopoClient implements CtDroneSpecListener {
     private static CtDroneSpecArrayMonitor DroneSpecArrayMonitor;
     private String trackLabel;
     private static CaltopoClientMap MyCaltopoClientMap;
-    private CtAlertDialog mappedIdAlert;
 
     // CaltopoClient INSTANCE VARS:=
     private final String remoteId;
@@ -202,13 +201,11 @@ public class CaltopoClient implements CtDroneSpecListener {
 
     public static int GetDebugLevel() {return DebugLevel;}
 
-        public void mappedIdChanged(@NonNull CtDroneSpec ds, @NonNull String oldval, @NonNull String newval) {
+    public void mappedIdChanged(@NonNull CtDroneSpec ds, @NonNull String oldval, @NonNull String newval) {
         CTDebug(TAG, String.format(Locale.US,
                 "mappedIdChanged(%s): change from '%s' to '%s'", trackLabel, oldval, newval));
-        if (null != trackLabel &&  null != liveTrack && liveTrack.isActive()) {
-            trackLabel = newTrackLabel();
-            liveTrack.renameTrack(trackLabel);
-        } // else drone hasn't broadcast recently.
+        trackLabel = newTrackLabel();
+        if (null != liveTrack) liveTrack.renameTrack(trackLabel);
     }
 
     public static String BumpLoggingLevel() {
@@ -320,7 +317,7 @@ public class CaltopoClient implements CtDroneSpecListener {
                         Log.d(TAG, String.format(Locale.US, "CTDebug: GetTodaysTrackDir(): Created '%s'", archiveDir));
                     }
                 } else {
-                    Log.d(TAG, String.format(Locale.US, "CTDebug: GetTodaysTrackDir(): found existing '%s'", archiveDir));
+                    Log.i(TAG, String.format(Locale.US, "CTDebug: GetTodaysTrackDir(): found existing '%s'", archiveDir));
                 }
             }
         } catch (Exception e) {
@@ -366,7 +363,6 @@ public class CaltopoClient implements CtDroneSpecListener {
     static void confirmMapIdChange(@NonNull String newMapId) {
         if (MapIdChangeDialog.getResponse()) {
             ClientClassState ccs = GetState();
-            MyCaltopoClientMap.setMapId(newMapId);
             ccs.mapId = newMapId;
             ArchiveState("user changed mapId");
             CheckBringUpMap();
@@ -491,27 +487,29 @@ public class CaltopoClient implements CtDroneSpecListener {
 
     public static void readCredentialsFileContent(JSONObject json)
             throws JSONException {
-        String teamId = json.optString("team_id", null);
-        String credentialId = json.optString("credential_id", null);
-        String credentialSecret = json.optString("credential_secret", null);
-        String trackFolder = json.optString("track_folder", null);
-        String mapid = json.optString("map_id", null);
-        String groupid = json.optString("group_id", null);
-
-        if (null == teamId || null == credentialId || null == credentialSecret) {
-            throw new JSONException("Bad/missing config.  Require ea. of team_id, credential_id, credential_secret");
-        }
-        if (null != trackFolder) SetTrackFolderName(trackFolder);
-        if (null != mapid) SetMapId(mapid);
-        if (null != groupid) SetGroupId(groupid);
+        String teamId = json.optString("team_id");
+        String credentialId = json.optString("credential_id");
+        String credentialSecret = json.optString("credential_secret");
+        String trackFolder = json.optString("track_folder");
+        String mapid = json.optString("map_id");
+        String groupid = json.optString("group_id");
+        if (!trackFolder.isEmpty()) SetTrackFolderName(trackFolder);
+        if (!mapid.isEmpty()) SetMapId(mapid);
+        if (!groupid.isEmpty()) SetGroupId(groupid);
 
         SetCaltopoSessionConfig(new CaltopoSessionConfig(teamId, credentialId, credentialSecret));
     }
     public static void readRidmapFileContent(JSONObject json) throws JSONException {
         JSONArray mapJson;
         int changeCount = 0;
+        boolean replaceFlag = false;
         try {
             mapJson = json.optJSONArray("map");
+            if (json.optString("load_type").equals("replace")) {
+                replaceFlag = true;
+            }
+            CTDebug(TAG, "readRidmapFileContent(): setting load_type to " +
+                    (replaceFlag ? "replace" : "merge"));
         } catch (NullPointerException e) {
             mapJson = null;
         }
@@ -529,28 +527,39 @@ public class CaltopoClient implements CtDroneSpecListener {
             String org = entry.optString("org");
             String model = entry.optString("model");
             String owner = entry.optString("owner");
-//                Log.i(TAG, String.format(Locale.US, "rid:%s, mid:%s, org:%s, model:%s owner:%s from entry: %s",
-//                        rid, mid, org, model, owner, entry.toString(2)));
-
             ds = new CtDroneSpec(rid, mid, org, model, owner);
             CtDroneSpec existingDs = ccs.droneSpecTable.get(rid);
-            if (null != existingDs) { // don't modify any existing values - just add values:
-                existingDs.mergeWithNew(ds);
-                if (!existingDs.sameAs(ds)) changeCount++;
-                ds = existingDs;
-            } else {
+            CTDebug(TAG, "readRidmapFileContent(): Found existing droneSpec for spec: " + existingDs);
+            if (null == existingDs) {
                 changeCount++;
+            } else {
+                if (replaceFlag) {
+                    if (existingDs.isDifferentFrom(ds)) {
+                        changeCount++;
+                        existingDs.setMappedId(ds.getMappedId());
+                        existingDs.setOrg(ds.getOrg());
+                        existingDs.setModel(ds.getModel());
+                        existingDs.setOwner(ds.getOwner());
+                        ds = existingDs;
+                    } else {
+                        CTDebug(TAG, "readRidmapFileContent(): no changes detected for spec: " + existingDs);
+                    }
+                } else {
+                    existingDs.mergeWithNew(ds);
+                    if (existingDs.isDifferentFrom(ds)) changeCount++;
+                }
+                CTDebug(TAG, "readRidmapFileContent(): updated ridspec: " + existingDs);
             }
             existingDs = mergedTable.get(rid);
             if (null != existingDs) {
                 throw new JSONException(String.format(Locale.US,
-                        "Illegal duplicate remoteId '%s' at offset %d - file contents ignored.", rid, i));
+                        "Illegal duplicate remoteId '%s' at table offset %d - file contents ignored.", rid, i));
             }
             CTDebug(TAG, String.format(Locale.US, "Adding dronespec:%s", ds));
             mergedTable.put(ds.getRemoteId(), ds);
         }
 
-        // Be sure to include any existing maps that weren't mentioned in the file:
+        // Be sure to include any existing mappings that weren't mentioned in the file:
         for (Map.Entry<String, CtDroneSpec> map : ccs.droneSpecTable.entrySet()) {
             String key = map.getKey();
             if (null == mergedTable.get(key)) {
@@ -564,13 +573,13 @@ public class CaltopoClient implements CtDroneSpecListener {
         }
     }
 
+    // yes, I know it always returns null, but that's required by Function<T, R> interface
+    // and besides, the return value is unused.
     public static String LoadConfigFile(Uri uri) {
         if (null == uri) return null;
         try {
             JSONObject json = ReadJsonFile(uri);
             if (null == json) return null;
-            //Log.i(TAG, String.format(Locale.US, "Loaded '%s':\n%s",
-            //        uri, json.toString(2)));
             String type = json.optString("type").trim().toLowerCase();
             String fileVersion = json.optString("file_version");
             String updated = json.optString("updated");
@@ -660,11 +669,13 @@ public class CaltopoClient implements CtDroneSpecListener {
     }
 
     public static void ConnectToMap() {
-        if (null != MyCaltopoClientMap) return;
         String mapId = GetMapId();
-        boolean directFlag = GetUseDirectFlag();
-        if (null != mapId && !mapId.isEmpty() && directFlag) {
-            MyCaltopoClientMap = new CaltopoClientMap(GetCaltopoConfig(), GetMapId(), GetTrackFolderName());
+        if (!GetUseDirectFlag()) return;
+        if (null != MyCaltopoClientMap) {
+            CTDebug(TAG, "ConnectToMap() changing map...");
+            MyCaltopoClientMap.setMapId(mapId);
+        } else {
+            MyCaltopoClientMap = new CaltopoClientMap(GetCaltopoConfig(), mapId, GetTrackFolderName());
         }
     }
 
@@ -813,6 +824,7 @@ public class CaltopoClient implements CtDroneSpecListener {
 
     public static void CheckBringUpMap() {
         if (GetUseDirectFlag() && null != DebugOutputStream && null != GetGroupId() || null != GetMapId()) {
+            CTDebug(TAG, "CheckBringUpMap()...");
             R2CRest.Init();
             ConnectToMap();
         }
@@ -914,13 +926,12 @@ public class CaltopoClient implements CtDroneSpecListener {
 
     /* FIXME: Is this necessary/useful?
      */
-    public static long SetMaxDisplayAgeInSeconds(long delayInSeconds) {
+    public static void SetMaxDisplayAgeInSeconds(long delayInSeconds) {
         ClientClassState ccs = GetState();
         if (ccs.maxDisplayAgeInSeconds != delayInSeconds) {
             ccs.maxDisplayAgeInSeconds = delayInSeconds;
             ArchiveState("maxDisplayAgeInSeconds changed.");
         }
-        return ccs.maxDisplayAgeInSeconds;
     }
 
     /* minimum distance in feet between waypoints necessary to
@@ -1064,7 +1075,7 @@ public class CaltopoClient implements CtDroneSpecListener {
             }
         }
         if (-1000 == altitudeInMeters || (0.0 == lat && 0.0 == lng)) {
-            CTDebug(TAG, String.format(Locale.US,
+            CTInfo(TAG, String.format(Locale.US,
                     "newWaypoint(%s/%s) w/Invalid altitude %d and/or coordinates %.7f, %.7f - ignoring.",
                     trackLabel, transportType, altitudeInMeters, lat, lng));
             return; // only interested in recording real waypoints thank-you very much
@@ -1090,7 +1101,7 @@ public class CaltopoClient implements CtDroneSpecListener {
                     return;
                 } else WarnMissingMapFlag = false;
 
-                if (null == MyCaltopoClientMap || !MyCaltopoClientMap.mapIsUp()) {
+                if (null == MyCaltopoClientMap || !MyCaltopoClientMap.getMapIsUp()) {
                     if (!WarnConnectingToMapFlag) {
                         ShowToast("Connecting to map...");
                         WarnConnectingToMapFlag = true;

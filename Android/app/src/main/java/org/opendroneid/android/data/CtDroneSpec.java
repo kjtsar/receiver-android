@@ -4,19 +4,22 @@
  */
 package org.opendroneid.android.data;
 
+import static org.opendroneid.android.data.CaltopoClient.CTDebug;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import java.io.Serializable;
 import java.util.Locale;
-interface CtDroneSpecListener {
-    void mappedIdChanged(@NonNull CtDroneSpec droneSpec, @NonNull String oldVal, @NonNull String newVal);
-}
+
 public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
+    public interface CtDroneSpecListener {
+        void mappedIdChanged(@NonNull CtDroneSpec droneSpec, @NonNull String oldVal, @NonNull String newVal);
+    }
     private static final long Version = 1L;
     private static final String TAG = "CtDroneSpec";
 
-    private final String remoteId;
+    private String remoteId;
     private String mappedId;   /* The track label prefix assigned to drone */
 
     private String org;
@@ -61,11 +64,8 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
         else this.owner = ownerIn;
     }
 
-    @Nullable
-    public CtDroneSpecListener setDroneSpecListener(@Nullable CtDroneSpecListener myListener) {
-        CtDroneSpecListener oldListener = this.myListener;
+    public void setDroneSpecListener(@Nullable CtDroneSpecListener myListener) {
         this.myListener = myListener;
-        return oldListener;
     }
 
     public void setMyR2cOwner(@Nullable R2CRest newOwnerR2c) {ownerR2c = newOwnerR2c;}
@@ -80,6 +80,8 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
         String newStr = newMappedId.replaceAll("[^a-zA-Z0-9]", "");
         if (!newStr.isEmpty() && !newStr.equals(oldString)) {
             mappedId = newStr;
+            CTDebug(TAG, String.format(Locale.US, "setMappedId() changed from '%s' to '%s', listener:0x%x",
+                    oldString, newStr, System.identityHashCode(myListener)));
             if (null != myListener) {
                 myListener.mappedIdChanged(this, oldString, newStr);
             }
@@ -105,7 +107,7 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
     public void mergeWithNew(CtDroneSpec newSpec) {
         CaltopoClient.CTInfo(TAG, String.format(Locale.US,
                 "Merging new dronespec:%s\n into existing:%s",
-                newSpec.toString(), this.toString()));
+                newSpec.toString(), this));
         // one exception is if the mappedId is same as remoteId (default)
         if (!this.remoteId.equals(this.mappedId)) {
             this.mappedId = newSpec.mappedId;
@@ -147,13 +149,6 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
         return retval;
     }
 
-    @NonNull
-    public CtDroneSpec clone() {
-        CtDroneSpec ds = new CtDroneSpec(this.remoteId, this.mappedId, this.org, this.model, this.owner);
-        ds.mostRecentTimeInSeconds = this.mostRecentTimeInSeconds;
-        return ds;
-    }
-
     public boolean sameAs(@NonNull CtDroneSpec other) {
         if (other.mostRecentTimeInSeconds != this.mostRecentTimeInSeconds) return false;
         if (!other.remoteId.equals(this.remoteId)) return false;
@@ -162,8 +157,23 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
         if (!other.owner.equals(this.owner)) return false;
         return other.model.equals(this.model);
     }
-     public int reverseCompareTo(@NonNull CtDroneSpec other) {
-         return other.compareTo(this);
-     }
+
+    @NonNull
+    public CtDroneSpec copy(@Nullable CtDroneSpec specToCopy) {
+        if (null == specToCopy) return new CtDroneSpec(remoteId, mappedId, org, model, owner);
+        specToCopy.remoteId = remoteId;
+        specToCopy.mappedId = mappedId;
+        specToCopy.org = org;
+        specToCopy.model = model;
+        specToCopy.owner = owner;
+        return specToCopy;
+    }
+    public boolean isDifferentFrom(@NonNull CtDroneSpec other) {
+        if (!other.remoteId.equals(this.remoteId)) return true;
+        if (!other.mappedId.equals(this.mappedId)) return true;
+        if (!other.org.equals(this.org)) return true;
+        if (!other.owner.equals(this.owner)) return true;
+        return !other.model.equals(this.model);
+    }
  }
 

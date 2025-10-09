@@ -2,14 +2,14 @@ package org.opendroneid.android.data;
 
 class CtLineProperty {
 
-    public String width;     // width in pixels
-    public String opacity;   // 0-1
+    public int width;     // width in pixels
+    public float opacity;   // 0-1
     public String color;     // RGB in #FFFFFF hex notation.
     public String pattern;   // solid, dash, ...
 
     public CtLineProperty() {
-        width = "2";
-        opacity = "1";
+        width = 2;
+        opacity = 1.0F;
         color = "#FF0000";
         pattern = "solid";
     }
@@ -20,7 +20,7 @@ class CtLineProperty {
      * @param color = Hex format RGB as in #FFFFFF. Default = #FF0000
      * @param pattern = Caltopo line types. Default is "solid"
      */
-    public CtLineProperty(String width, String opacity, String color, String pattern) {
+    public CtLineProperty(int width, float opacity, String color, String pattern) {
         this.width = width;
         this.opacity = opacity;
         this.color = color;

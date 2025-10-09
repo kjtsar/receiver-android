@@ -16,8 +16,6 @@ import java.util.LinkedList;
 
 public class CaltopoLiveTrack {
     private static final String TAG = "CaltopoLiveTrack";
-    private static CaltopoSession Csp;
-    private static CtLineProperty ArchiveTrackLineProp;
     private static JSONObject R2cPeers;
     private static SimpleMovingAverage CaltopoRttInMsec;
     private CaltopoOp startLiveTrackOp;
@@ -36,7 +34,6 @@ public class CaltopoLiveTrack {
     private R2CRest r2cClient;
     private String myGroupId;
     private CtDroneSpec droneSpec;
-
     public static long GetCaltopoRttInMsec() { return CaltopoRttInMsec.get();}
 
     public static class SimpleMovingAverage {
@@ -67,6 +64,7 @@ public class CaltopoLiveTrack {
         }
         if (null == CaltopoRttInMsec) CaltopoRttInMsec = new SimpleMovingAverage(10);
         myMap = map;
+        myMap.addLiveTrack(this);
         myTrackLabel = trackLabel;
         myGroupId = groupId;
         active = true;
@@ -75,11 +73,6 @@ public class CaltopoLiveTrack {
         if (null == linePoints) linePoints = new LinkedList<>();
         double[] point = {lat, lng, (double)droneTimestampInMsec};
         linePoints.add(point);
-        if (null == ArchiveTrackLineProp) ArchiveTrackLineProp =
-                new CtLineProperty("2", "1", "#ff00ff", "solid");
-        if (null == Csp) {
-            Csp = myMap.session();
-        }
         switch (R2CRest.StatusForNewRemoteId(droneSpec, lat, lng, droneTimestampInMsec)) {
             case forwardToClient -> r2cClient = R2CRest.ClientForRemoteId(droneSpec.getRemoteId());
             case pending -> blocked = true;
@@ -112,7 +105,7 @@ public class CaltopoLiveTrack {
         int size = (linePoints != null) ? linePoints.size() : 0;
         if (0 == size || null == liveTrackId) {
             CTDebug(TAG, String.format(Locale.US,
-                    "finishTrack(%s): w/no waypoints ignored.", myTrackLabel));
+                    "archiveTrackOnCaltopo(%s): w/no waypoints ignored.", myTrackLabel));
             return;
         }
         JSONArray jsonArray = new JSONArray();
@@ -124,7 +117,7 @@ public class CaltopoLiveTrack {
             jsonArray.put(pointArray);
         }
         String archiveFolderId = myMap.getArchiveFolderId();
-        CTDebug(TAG, String.format(Locale.US, "archiveTrackOnCaltopo(): Archiving track %s with %d points.",
+        CTDebug(TAG, String.format(Locale.US, "archiveTrackOnCaltopo(%s): Archiving track with %d points.",
                 myTrackLabel, size));
         if (null != startLiveTrackOp && startLiveTrackOp.isDone() && startLiveTrackOp.success()) {
             // convert the LiveTrack to a Shape w/archive properties and add in all the waypoints.
@@ -141,7 +134,8 @@ public class CaltopoLiveTrack {
         } else {
             // for some reason, we weren't able to start the live track, so this will likely block as well
             try {
-                Csp.addLine(jsonArray, myTrackLabel, "", "", archiveFolderId, myMap.getArchiveLineProp(), null);
+                myMap.session().addLine(jsonArray, myTrackLabel, "", "", archiveFolderId,
+                        myMap.getArchiveLineProp(), null);
             } catch (Exception e) {
                 CTError(TAG, "archiveTrackCaltopo() addLine() raised - for no apparent reason.", e);
             }
@@ -150,6 +144,11 @@ public class CaltopoLiveTrack {
         liveTrackId = null;
         linePointsSentCount = 0;
         startLiveTrackOp = null;
+    }
+
+    public String getTrackLabel() {
+        if (isActive()) return myTrackLabel;
+        return "<not active>";
     }
 
     public void renameTrackCompleted() {
@@ -176,32 +175,38 @@ public class CaltopoLiveTrack {
             String timeString = String.valueOf(timeNowInMilliseconds);
             JSONObject feature = startLiveTrackOp.responseJson;
             JSONObject prop = feature.optJSONObject("properties");
-            if (null != prop) prop.put("title", trackLabel);
+            if (null == prop) {
+                prop = new JSONObject();
+                feature.put("properties", prop);
+            }
+            prop.put("title", trackLabel);
             prop.put("updated", timeString);
             prop.put("-updated-on", timeString);
-            renameTrackOp = Csp.editObjectWithId("LiveTrack", liveTrackId, feature, this::renameTrackCompleted);
+            myTrackLabel = trackLabel;
+            renameTrackOp = myMap.session().editObjectWithId("LiveTrack", liveTrackId, feature, this::renameTrackCompleted);
         } catch (Exception e) {
             CTError(TAG, "renameTrack() raised.", e);
         }
     }
 
     public void startNewTrack(String trackLabel) {
+        if (null != startLiveTrackOp) return;
         myTrackLabel = trackLabel;
         linePointsSentCount = 0;
         liveTrackId = null;
         liveTrackOp = null;
-        startLiveTrackOp = null;
         active = true;
-        if (null == folderId) folderId = myMap.getFolderId();
-        if (null == folderId) {
-            CTDebug(TAG, "startNewTrack(): missing required folderId - delaying...");
-            DelayedExec.RunAfterDelayInMsec(() -> {startNewTrack(trackLabel);}, 1000);
+
+        if (!myMap.getMapIsUp()) {
+            CTDebug(TAG, "startNewTrack(): waiting for map - delaying...");
+            DelayedExec.RunAfterDelayInMsec(() -> startNewTrack(trackLabel), 1000);
             return;
         }
+        folderId = myMap.getFolderId();
         CTDebug(TAG, String.format(Locale.US, "startNewTrack(%s-%s): Starting LiveTrack.",
                 myGroupId, myTrackLabel));
         try {
-            startLiveTrackOp = Csp.startLiveTrack(myGroupId, myTrackLabel, folderId,
+            startLiveTrackOp = myMap.session().startLiveTrack(myGroupId, myTrackLabel, folderId,
                     null, null, this::startLiveTrackComplete);
         } catch (Exception e) {
             CTError(TAG, "startNewTrack(): startLiveTrack() raised: ", e);
@@ -209,6 +214,7 @@ public class CaltopoLiveTrack {
     }
 
     public void finishTrack(@NonNull String reason) {
+        if (!active) return;
         try {
             archiveTrackOnCaltopo();
         } catch (Exception e) {
@@ -253,12 +259,7 @@ public class CaltopoLiveTrack {
         CTDebug(TAG, String.format(Locale.US,
                 "publishDirect(%s): added waypoint to queue. size is %d",
                 myTrackLabel, linePoints.size()));
-        if (!myMap.mapIsUp()) {
-            CTDebug(TAG, "publishDirect(): Waiting for map to initialize.");
-            return;
-        }
-        folderId = myMap.getFolderId();
-        if (null == liveTrackId  && null == startLiveTrackOp) {
+        if (null == liveTrackId) {
             startNewTrack(myTrackLabel);
             return;
         }
@@ -280,7 +281,7 @@ public class CaltopoLiveTrack {
                     double[] point = linePoints.get(linePointsSentCount++);
                     CTDebug(TAG, String.format(Locale.US, "processNextWaypoint(%s-%s#%d): adding %.7f,%.7f to LiveTrack.  Avg rtt is %.3f seconds.",
                             myGroupId, myTrackLabel, linePointsSentCount, point[0], point[1], (double)CaltopoRttInMsec.get() / 1000.0));
-                    liveTrackOp = Csp.addLiveTrackPoint(myGroupId, myTrackLabel, point[0], point[1], this::processNextWaypoint);
+                    liveTrackOp = myMap.session().addLiveTrackPoint(myGroupId, myTrackLabel, point[0], point[1], this::processNextWaypoint);
                 }
             } catch (Exception e) {
                 CTError(TAG, "processNextWaypoint(): addLiveTrackPoint() raised: ", e);
