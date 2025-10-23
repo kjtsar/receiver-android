@@ -244,8 +244,8 @@ public class WsPipe extends WebSocketListener {
                 Client = new OkHttpClient.Builder()
                         .callTimeout(60, TimeUnit.SECONDS)
                         .connectTimeout(60, TimeUnit.SECONDS)
-                        .readTimeout(30, TimeUnit.SECONDS)
-                        .writeTimeout(30, TimeUnit.SECONDS)
+                        .readTimeout(60, TimeUnit.SECONDS)
+                        .writeTimeout(60, TimeUnit.SECONDS)
                         .sslSocketFactory(sslSocketFactory, (X509TrustManager) myTrustManager[0])
                         .hostnameVerifier((hostname, session) -> {
                             // The hostname should be the IP address from the certificate
