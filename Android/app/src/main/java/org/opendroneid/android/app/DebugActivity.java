@@ -84,6 +84,8 @@ public class DebugActivity extends AppCompatActivity {
     public static final String SHARED_PREF_NAME = "DebugActivity";
     public static final String SHARED_PREF_ENABLE_LOG = "EnableLog";
 
+    public static String MyDeviceName = "unknown";
+
     private static boolean RestartingFlag = false;
 
     private MenuItem mMenuLogItem;
@@ -126,7 +128,7 @@ public class DebugActivity extends AppCompatActivity {
     private void checkBluetoothSupport(Menu menu) {
         BluetoothAdapter bluetoothAdapter = BluetoothScanner.getBluetoothAdapter(this);
         if (null == bluetoothAdapter) return;
-
+        MyDeviceName = bluetoothAdapter.getName();
         if (bluetoothAdapter.isLeCodedPhySupported()) {
             menu.findItem(R.id.coded_phy).setTitle(getString(R.string.coded_phy_supported));
         }

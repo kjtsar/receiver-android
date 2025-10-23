@@ -129,6 +129,10 @@ public class CaltopoSession {
 	private static ExecutorService ExecutorPool;
 	private final CtLineProperty CtLinePropertyDefault = new CtLineProperty();
 	private static final String CALTOPO_API_V1 = "/api/v1/map/";
+
+	private static CtLineProperty LiveTrackLineProp =
+			new CtLineProperty(2, 1F, "#0000ff", "solid");
+
 	// instance variables:
 	private static CaltopoSessionConfig Config;
 	private String mapId;
@@ -338,6 +342,8 @@ public class CaltopoSession {
      * since the previous open/synch.
      *
      * @param mapId string is the identifier for the map we want to interact with.
+	 *    Issue
+	 *
      *
      * @return CaltopoOp responseJson on success will contain all the map info.
      *  User will likely check it to see if it needs anything.
@@ -348,10 +354,13 @@ public class CaltopoSession {
 		if (null == mapId || mapId.isEmpty()) {
 			throw new RuntimeException("missing required mapId");
 		}
+		this.lastSyncTimestamp = 0;
 		if (!mapId.equals(this.mapId)) {
 			this.mapId = mapId;
-			this.lastSyncTimestamp = 0;
+		} else if (null != lastOpenMapOp && lastOpenMapOp.isDone() && !lastOpenMapOp.fail()) {
+			this.lastSyncTimestamp = lastOpenMapOp.sentTimestampMsec;
 		}
+
         // remove any update key delimiter:
 		String urlEnd = CALTOPO_API_V1 + this.mapId + "/since/" +
 				Math.max(0, this.lastSyncTimestamp - 500);
@@ -461,7 +470,7 @@ public class CaltopoSession {
 			prop.put("updated", System.currentTimeMillis());
 			prop.put("title", markerTitle);
 			prop.put("marker-color", "#FF0000");
-			if (symbol.isEmpty()) symbol = "point";
+			if (null == symbol || symbol.isEmpty()) symbol = "point";
 			prop.put("marker-symbol", symbol);
 			prop.put("marker-size", "1");
 			prop.put("marker-visibility", "visible");
@@ -490,6 +499,11 @@ public class CaltopoSession {
 		} catch (Exception e) {
 			CTError(TAG, "addMarker() raised.", e);
 			return null;
+		}
+		try {
+			CTDebug(TAG, "addMarker(): adding:\n" + top.toString(4));
+		} catch (Exception e) {
+			CTError(TAG, "keeping compiler happy.", e);
 		}
 
 		String urlEnd = CALTOPO_API_V1 + this.mapId + "/Marker" + objid;
@@ -534,7 +548,7 @@ public class CaltopoSession {
 	}
 
 	@Nullable
-	public CaltopoOp startLiveTrack(@NonNull String groupId, @NonNull String deviceId,
+	public CaltopoOp startLiveTrack(@NonNull String groupId, @NonNull String deviceId, @NonNull String label,
 									@Nullable String folderId, @Nullable String description,
 									@Nullable CtLineProperty lineProp, @Nullable Runnable optRunnable) {
 		JSONObject prop = new JSONObject();
@@ -542,14 +556,15 @@ public class CaltopoSession {
 			CTError(TAG, "startLiveTrack(): group and device IDs required.");
 			return null;
 		}
-		if (lineProp == null) lineProp = CtLinePropertyDefault;
+		if (lineProp == null) lineProp = LiveTrackLineProp;
 		JSONObject top = new JSONObject();
 		try {
-			prop.put("title", deviceId);
+			prop.put("title", label);
 			prop.put("stroke-width", lineProp.width);
 			prop.put("stroke-opacity", lineProp.opacity);
 			prop.put("stroke", lineProp.color);
 			prop.put("pattern", lineProp.pattern);
+			prop.put("marker-symbol", "icon-8T781R60-12-0.5-0.5-tf");
 			if (null != description && !description.isEmpty()) prop.put("descripion", description);
 			prop.put("class", "LiveTrack");
 			if (folderId != null && !folderId.isEmpty()) {

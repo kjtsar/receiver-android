@@ -25,7 +25,7 @@ public class DelayedExec {
 
     private void dispatcher() {
         if (running) {
-            boolean savedRunState = (0 != repeatMsec);
+            boolean savedRunState = running = (0 != repeatMsec);
             try {
                 runnable.run();
             } catch (Exception e) {
@@ -36,7 +36,7 @@ public class DelayedExec {
                 running = false;
             }
 
-            if (!running) {
+            if (savedRunState && !running) {
                 CTInfo(TAG, String.format(Locale.US,
                         "'%s' stopped by runnable.", runnable.toString()));
                 return;
@@ -46,7 +46,7 @@ public class DelayedExec {
                 return;
             }
 
-            if (0 != repeatMsec) {
+            if (savedRunState) {
                 handler.postDelayed(this::dispatcher, repeatMsec);
             } else {
                 CTInfo(TAG, String.format(Locale.US,

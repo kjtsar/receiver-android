@@ -6,14 +6,46 @@
  */
 package org.opendroneid.android.data;
 
+import static org.opendroneid.android.data.CaltopoClient.CTError;
+
+import androidx.annotation.NonNull;
 import androidx.lifecycle.Observer;
 import androidx.annotation.Nullable;
+
+import com.google.android.gms.common.annotation.NonNullApi;
+
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
 public class Util {
+
+    public static class SimpleMovingAverage {
+        private final long[] window;
+        private int ix;
+        private long sum;
+
+        public SimpleMovingAverage(int size) {
+            window = new long[size];
+            sum = 0;
+        }
+
+        public long next(long val) {
+            sum -= window[ix];
+            sum += val;
+            window[ix++] = val;
+            ix = ix % window.length;
+            return sum / ((0 == ix) ? window.length : ix);
+        }
+
+        public long get() {
+            return sum / ((0 == ix) ? window.length : ix);
+        }
+    }
 
     public static class SetDifference<T> {
         final Set<T> added;
@@ -24,6 +56,67 @@ public class Util {
             removed = difference(oldSet, newSet);
         }
     }
+
+    public static class SafeJSONObject extends JSONObject {
+        private static final String TAG = "QuietJSONObject";
+
+        @Override
+        @NonNull
+        public SafeJSONObject put(@NonNull String name, boolean value) {
+            try {
+                super.put(name, value);
+            } catch (JSONException e) {
+                CTError(TAG, "put() raised: ", e);
+            }
+            return this;
+        }
+
+        @Override
+        @NonNull
+        public SafeJSONObject put(@NonNull String name, double value) {
+            try {
+                super.put(name, value);
+            } catch (JSONException e) {
+                CTError(TAG, "put() raised: ", e);
+            }
+            return this;
+        }
+
+        @Override
+        @NonNull
+        public SafeJSONObject put(@NonNull String name, long value) {
+            try {
+                super.put(name, value);
+            } catch (JSONException e) {
+                CTError(TAG, "put() raised: ", e);
+            }
+            return this;
+        }
+
+        @Override
+        @NonNull
+        public SafeJSONObject put(@NonNull String name, int value) {
+            try {
+                super.put(name, value);
+            } catch (JSONException e) {
+                CTError(TAG, "put() raised: ", e);
+            }
+            return this;
+        }
+
+
+        @Override
+        @NonNull
+        public SafeJSONObject put(@NonNull String name, Object value) {
+            try {
+                super.put(name, value);
+            } catch (JSONException e) {
+                CTError(TAG, "put() raised: ", e);
+            }
+            return this;
+        }
+    }
+
 
     /** OTHER - SET */
     private static <E> Set<E> difference(Set<? extends E> set, Set<? extends E> other) {

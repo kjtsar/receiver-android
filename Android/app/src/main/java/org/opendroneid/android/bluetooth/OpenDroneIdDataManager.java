@@ -69,7 +69,7 @@ public class OpenDroneIdDataManager {
             CaltopoClient.CTError(TAG, "Not able to parse NaN data.");
             return;
         }
-        CaltopoClient.CTDebug(TAG, "Caltopo: Wireless NaN for NAN ID: " + peerHash);
+        CaltopoClient.CTInfo(TAG, "Caltopo: Wireless NaN for NAN ID: " + peerHash);
         receiveData(timeNano, "NaN ID: " + peerHash, peerHash, 0, message, logMessageEntry, transportType);
     }
 
@@ -90,8 +90,11 @@ public class OpenDroneIdDataManager {
         // remove nulls and any other garbage from idstr:
         String idStr = rawStr.replaceAll("[^\\.A-Z0-9]", "");
         if (idStr.isEmpty()) {
-            CaltopoClient.CTDebug(TAG, String.format(Locale.US, "updateCaltopo(): Ignoring message with invalid id from mac:0x%x transport:%s",
-                    ac.getMacAddress(), transportType));
+            if (CaltopoClient.DebugLevel > CaltopoClient.DebugLevelDebug) {
+                CaltopoClient.CTInfo(TAG, String.format(Locale.US,
+                        "updateCaltopo(): Ignoring message with invalid id from mac:0x%x transport:%s",
+                        ac.getMacAddress(), transportType));
+            }
             return;
         }
 

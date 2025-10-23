@@ -1,6 +1,6 @@
 package org.opendroneid.android.data;
 
-class CtLineProperty {
+public class CtLineProperty {
 
     public int width;     // width in pixels
     public float opacity;   // 0-1

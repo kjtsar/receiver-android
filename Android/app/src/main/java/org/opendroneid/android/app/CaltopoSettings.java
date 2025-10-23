@@ -54,16 +54,19 @@ enum ET_Field_t {
     ET_OWNER,
 }
 
-class MyEditTextWatcher implements TextWatcher, TextView.OnEditorActionListener {
+class MyEditTextWatcher implements TextWatcher, View.OnFocusChangeListener, TextView.OnEditorActionListener {
     private static final String TAG = "MyEditTextWatcher";
-    private static final long delayInMsec = 5000;
     private EditText editText;
     private String setValue;
     private String newValue;
     private ET_Field_t field;
     private CtDroneSpec droneSpec;
-    private final DelayedExec delayedExec;
     private int cursorPosition;
+
+    @Override
+    public void onFocusChange(View v, boolean hasFocus) {
+        if (v == editText && !hasFocus) textHasFinishedChanging();
+    }
 
     @Override
     public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
@@ -72,14 +75,10 @@ class MyEditTextWatcher implements TextWatcher, TextView.OnEditorActionListener 
             CTDebug(TAG, "onEditorAction() from a different view.");
             return false;
         }
-        CTInfo(TAG, String.format(Locale.US, "onEditorAction() id:%d, keyEvent: %s", actionId, event.toString()));
-
-        // FIXME: Can we be guaranteed to get one of these actions when our text looses focus for any reason?
-        // It would be extra nice to get rid of the stupid delay loop altogether...
+        CTInfo(TAG, String.format(Locale.US, "onEditorAction() id:%d", actionId));
         if (actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_ACTION_NEXT ||
                 actionId == EditorInfo.IME_ACTION_PREVIOUS) {
             textHasFinishedChanging();
-            return true;
         }
         return false;
     }
@@ -103,19 +102,16 @@ class MyEditTextWatcher implements TextWatcher, TextView.OnEditorActionListener 
             editText.addTextChangedListener(this);
         }
     }
-    public MyEditTextWatcher() {delayedExec = new DelayedExec();}
+    public MyEditTextWatcher() {}
     public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-    public void onTextChanged(CharSequence s, int start, int before, int count) {
-        delayedExec.stop();
-    }
+    public void onTextChanged(CharSequence s, int start, int before, int count) {}
     public void afterTextChanged(Editable e) {
         newValue = e.toString().trim();
-        CTDebug(TAG, String.format(Locale.US, "afterTextChanged(0x%x) has detected change from:'%s' to:'%s'",
+        CTInfo(TAG, String.format(Locale.US, "afterTextChanged(0x%x) has detected change from:'%s' to:'%s'",
                 System.identityHashCode(this), setValue, newValue));
         cursorPosition = editText.getSelectionStart();
         CTInfo(TAG, String.format(Locale.US, "set cursorPosition to selectionStart(%d), selectionEnd(%d)",
                 cursorPosition, editText.getSelectionEnd()));
-        delayedExec.start(this::textHasFinishedChanging, delayInMsec, 0);
     }
 
     @Override
@@ -134,6 +130,8 @@ class MyEditTextWatcher implements TextWatcher, TextView.OnEditorActionListener 
         } else {
             textWatcher = new MyEditTextWatcher();
             editText.setTag(textWatcher);
+            editText.setOnEditorActionListener(textWatcher);
+            editText.setOnFocusChangeListener(textWatcher);
             textWatcher.editText = editText;
         }
         // load the current value of the field from the dronespec:
@@ -148,9 +146,8 @@ class MyEditTextWatcher implements TextWatcher, TextView.OnEditorActionListener 
     }
 
     private void textHasFinishedChanging() {
-        delayedExec.stop();
         if (newValue.equals(setValue)) {
-            CTDebug(TAG, "textHasFinishedChanging(): no change detected.");
+            CTInfo(TAG, "textHasFinishedChanging(): no change detected.");
             return;
         }
 

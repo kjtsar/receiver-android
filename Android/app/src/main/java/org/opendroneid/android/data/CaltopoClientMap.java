@@ -3,6 +3,7 @@ package org.opendroneid.android.data;
 import static org.opendroneid.android.data.CaltopoClient.CTInfo;
 import static org.opendroneid.android.data.CaltopoClient.CTDebug;
 import static org.opendroneid.android.data.CaltopoClient.CTError;
+import static org.opendroneid.android.data.CaltopoClient.PermissionsGrantedWeShouldBeGoodToGo;
 import static org.opendroneid.android.data.CaltopoClient.ShowToast;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -21,42 +22,67 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.Hashtable;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
-/**
- * Support bringing up the map session, creating the drone track folders (if not already
- * present).
+/** CaltopoClientMap class
+ *   Support bringing up the map session and creating the drone track folders (if not
+ * already present).
  * The archive folder starts with the drone track folder name and ends with the
  * current date (i.e. 25Sep).
+ *   Additionally, if there are any peer R2C Instances present on the map, then
+ * attempt to bring up their corresponding R2CRest clients before indicating the
+ * map is up.
  *
+ * FIXME:  I'm not yet sure if the caltopo map needs to keep track of all the peer
+ *     connectivity issues.   It seems like it should be enough that it minds it's
+ *     own marker on Caltopo and cranks-up the server (R2CRest.Init() - which it
+ *     does prior to connecting to it's own map) to listen for inbound connections
+ *     on.   The caltopo map makes sense for facilitating the rendezvous, but after
+ *     that, I'd like to see the individual app instances keep track of their peer
+ *     connectivity.
  */
-public class CaltopoClientMap {
+public class CaltopoClientMap implements R2CRest.R2CListener {
     private static final String TAG = "CaltopoClientMap";
     private static CaltopoSession Csp;
     private static String MyUUID = null;
     private static android.location.Location MyLocation;
-    private static ArrayList<CaltopoClientMap> Maps = null;
+    private static final ArrayList<CaltopoClientMap> Maps = new ArrayList<>(16);
+
+    private static final long MapUpdateTimeInSeconds = 45;
+    private static final long MAX_CALTOPO_OP_DURATION_IN_SECONDS = 20;
+
+    private static CaltopoClientMap CurrentMap = null;
+    public static final CtLineProperty ArchiveLineProp =
+            new CtLineProperty(2, 0.5F, "#ff00ff", "solid");
+    private static final int MAX_MAP_STARTUP_DELAY_IN_SECONDS = 45;
+
+    // my peers by UUID:
+    private final Hashtable<String, R2CRest>clientIdMap = new Hashtable<>(16);
     private CaltopoOp openMapOp;
+    private CaltopoOp updateMapOp;
     private String folderId;
     private CaltopoOp folderIdOp;
     private CaltopoOp myMarkerOp;
+    private DelayedExec mapCheckerDelay = new DelayedExec();
     private String archiveFolderId;
     private CaltopoOp archiveFolderIdOp;
     private boolean mapDumpedToLog;
-    private CaltopoSessionConfig sessionConfig;
+    private final CaltopoSessionConfig sessionConfig;
     private String mapId;
-    private String folderName;
+    private final String folderName;
     private String openMapFailedMsg;
     private boolean mapIsUp;
-    private JSONArray shapeFeatures;
     private int waitForGpsAccuracy;
-    private JSONArray r2cPeers;
-    private CtLineProperty archiveLineProp;
-    private final ArrayList<CaltopoLiveTrack> liveTracks;
+    private JSONArray r2cPeers; // list of r2cPeerSpecs for peers listed on our map.
+    private final ArrayList<CaltopoLiveTrack> liveTracks;   // Caltopo Live Tracks
+    private JSONArray myLiveTracksInThisMap;   // Actual 'LiveTrack' objects in the current map
 
     public CaltopoClientMap(@NonNull CaltopoSessionConfig config, @NonNull String mapId, @NonNull String folderName)
             throws RuntimeException {
+        R2CRest.Init();
         sessionConfig = config;
         if (mapId.isEmpty())
             throw new RuntimeException("CaltopoClientMap(): mapId must be specified.");
@@ -64,9 +90,9 @@ public class CaltopoClientMap {
         liveTracks = new ArrayList<>(16);
         if (folderName.isEmpty()) folderName = "DroneTracks";
         this.folderName = folderName;
-        if (null == MyUUID) SetMyUUID();
-        if (null == Maps) Maps = new ArrayList<>(16);
+        if (null == MyUUID) GetMyUUID();
         Maps.add(this);
+        CurrentMap = this;
         startMapConnection();
     }
 
@@ -81,12 +107,24 @@ public class CaltopoClientMap {
         return dbResult[0];
     }
 
-    public static void SetMyUUID() {
+    public void clientStatusChange(R2CRest client, boolean isNowUpFlag) {
+        CTDebug(TAG, String.format(Locale.US,"" +
+                "Received clientStatusChange(%s) from %s.", isNowUpFlag,client.getPeerName()));
+        if (isNowUpFlag) {
+            AddClient(client);
+        } else {
+            RemoveClient(client);
+        }
+    }
+
+    @NonNull
+    public static String GetMyUUID() {
+        if (null != MyUUID) return MyUUID;
         Context ctxt = DebugActivity.getAppContext();
         if (null == ctxt) {
-            DelayedExec.RunAfterDelayInMsec(CaltopoClientMap::SetMyUUID, 1000);
-            CTDebug(TAG, "SetMyUUID() waiting for app to initialize...");
-            return;
+            DelayedExec.RunAfterDelayInMsec(CaltopoClientMap::GetMyUUID, 1000);
+            CTDebug(TAG, "GetMyUUID() waiting for app to initialize...");
+            return "";
         }
         ContentResolver contentResolver = ctxt.getContentResolver();
         // android studio warns: "Using 'GetString' to get device identifiers is not recommended",
@@ -94,9 +132,7 @@ public class CaltopoClientMap {
         String androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID);
         UUID deviceUuid = UUID.nameUUIDFromBytes(androidId.getBytes(StandardCharsets.UTF_8));
         MyUUID = deviceUuid.toString();
-        // FIXME: once I have a handle to the drone tracks folder, I need to create and or
-        //  edit a Marker instance for this app in that folder.   Can I use my own UUUID
-        //  as it's identifier?
+        return MyUUID;
     }
 
     public void setMapId(@NonNull String newMapId) {
@@ -119,7 +155,7 @@ public class CaltopoClientMap {
                             (double) op.roundTripTimeInMsec() / 1000.0));
                 }
             } catch (Exception e) {
-                CTError(TAG, "changeMap(): deleteMarkerWithId() raised:", e);
+                CTError(TAG, "setMapId(): deleteMarkerWithId() raised:", e);
             }
 
             mapId = newMapId;
@@ -129,6 +165,7 @@ public class CaltopoClientMap {
 
     private void resetMapConnection() {
         openMapOp = null;
+        updateMapOp = null;
         folderIdOp = null;
         folderId = null;
         archiveFolderIdOp = null;
@@ -136,6 +173,17 @@ public class CaltopoClientMap {
         mapDumpedToLog = false;
         openMapFailedMsg = null;
         mapIsUp = false;
+        if (!clientIdMap.isEmpty()) {
+            ArrayList<String> uuidList = new ArrayList<>(clientIdMap.size());
+            for (Map.Entry<String,R2CRest>map : clientIdMap.entrySet()) {
+                R2CRest r2cClient = map.getValue();
+                CTDebug(TAG, String.format(Locale.US,
+                        "Shutting down connection to %s due to map change: ", r2cClient.getPeerName()));
+                r2cClient.shutdown();
+                uuidList.add(map.getKey());
+            }
+            for (String uuid : uuidList) clientIdMap.remove(uuid);
+        }
     }
 
     private void startMapConnection() {
@@ -162,8 +210,7 @@ public class CaltopoClientMap {
         }
         archiveFolderId = archiveFolderIdOp.id();
         CTDebug(TAG, String.format(Locale.US, "archive folder id is %s", archiveFolderId));
-        if (null != folderId && null != archiveFolderId) mapIsUp = true;
-        lookForOldShapes();
+        lookForExistingLiveTracks();
     }
 
     private void createTrackDirFinished() {
@@ -175,13 +222,53 @@ public class CaltopoClientMap {
         }
         folderId = folderIdOp.id();
         CTDebug(TAG, String.format(Locale.US, "track folder id is %s", folderId));
-        if (null != folderId && null != archiveFolderId) mapIsUp = true;
+    }
+
+    /** parseMapUpdate()
+     * Different from parseMap() in that we already have an established map DroneTracks and
+     * Archive directories.  Now we're just interested in taking a peek at the contents of
+     * the DroneTracks directory to see if there are any new R2C Markers we don't know about
+     * yet made contact with.   This can happen if there was a race condition at start-up,
+     * with multiple
+     * @param state
+     * @throws RuntimeException
+     * @throws JSONException
+     */
+    private void parseMapUpdate(JSONObject state)
+            throws RuntimeException, JSONException {
+        if (state == null) throw new RuntimeException("Missing required state.");
+        JSONArray features = state.getJSONArray("features");
+        int count = features.length();
+        CTDebug(TAG, String.format(Locale.US, "parseMapUpdate() found %d new features since my last visit.", count));
+        for (int i = 0; i < count; i++) {
+            JSONObject feature = features.getJSONObject(i);
+            String thisFolderId = feature.optString("folderId");
+            if (!folderId.equals(thisFolderId)) continue;
+            JSONObject prop = feature.optJSONObject("properties");
+            if (null == prop) {
+                CTError(TAG, "feature missing 'properties' - skipping:" + feature);
+                continue;
+            }
+            if ("Marker".equals(prop.optString("class", ""))) {
+                String peerUUID = feature.optString("id");
+                if (MyUUID.equals(peerUUID) || clientIdMap.contains(peerUUID)) continue;
+                String ipAddrsString = prop.optString("r2c-ipaddrs");
+                if (!ipAddrsString.isEmpty()) {
+                    CTDebug(TAG, "Found new peer: " + feature);
+                    JSONArray ipAddrsObj = new JSONArray(ipAddrsString);
+                    JSONObject peerMarkerSpec = parseR2cMarker(ipAddrsObj, feature, prop);
+                    clientIdMap.put(peerUUID, R2CRest.ClientForRemoteR2c(peerMarkerSpec, this));
+                } else {
+                    CTDebug(TAG, "Ignoring non-R2C marker in our folder:\n" + feature.toString(4));
+                }
+            }
+        }
     }
 
     /* Parse the feature set returned by the openMap()
      * to look for our track directory and it's companion archive dir.
-     * Also make a list of all other Shape and LiveTrack that might
-     * be old tracks in need of archival.
+     * Also make a list of all other LiveTracks that might be leftover old
+     * tracks in need of archival.
      * FIXME: Seems like this could take a long time on a multi-op period search, so
      *  might want to be able to do this in a background thread.   Also, would be nice
      *  to be able to get map updates (to see if there are new R2C peers that we missed
@@ -190,7 +277,7 @@ public class CaltopoClientMap {
     private void parseMap(JSONObject state)
             throws RuntimeException, JSONException {
 
-        shapeFeatures = new JSONArray();
+        myLiveTracksInThisMap = new JSONArray();
         JSONArray markerFeatures = new JSONArray();
         SimpleDateFormat sdf = new SimpleDateFormat("ddMMM", Locale.US);
         String archiveFolderName = folderName + sdf.format(new Date());
@@ -206,7 +293,7 @@ public class CaltopoClientMap {
             CTInfo(TAG, "Parsing returned feature:\n" + feature.toString(2));
             JSONObject prop = feature.optJSONObject("properties");
             if (null == prop) {
-                CTError(TAG, "feature missing properties - skipping:" + feature);
+                CTError(TAG, "feature missing 'properties' - skipping:" + feature);
                 continue;
             }
             String title = prop.optString("title");
@@ -222,10 +309,10 @@ public class CaltopoClientMap {
             switch (classProp) {
                 case "" -> CTError(TAG, "parseMap(): feature missing class: " + feature.toString(4));
                 case "Marker" -> markerFeatures.put(feature);
-                case "Shape", "LiveTrack" ->
+                case "LiveTrack" ->
                     // collect the list of features that might be ours - don't know if they
                     // are in our folder yet, because we may not even have folders.
-                        shapeFeatures.put(feature);
+                        myLiveTracksInThisMap.put(feature);
                 case "Folder" -> {
                     if (folderId == null && title.equals(folderName)) {
                         folderId = feature.getString("id");
@@ -248,14 +335,30 @@ public class CaltopoClientMap {
         }
         findR2cPeers(markerFeatures);
 
-
         if (null == archiveFolderId) {
             CTInfo(TAG, String.format(Locale.US,
                     "parseMap() '%s' folder not found - creating...", archiveFolderName));
             archiveFolderIdOp = Csp.addFolder(archiveFolderName, false, false, this::createArchiveDirFinished);
-        } else lookForOldShapes();
+        } else lookForExistingLiveTracks();
     }
 
+    private void updateMapFinished() {
+        if (updateMapOp.fail()) {
+            CTError(TAG, String.format(Locale.US, "Not able to update map '%s':\n  %s",
+                    mapId, updateMapOp.responseString()));
+            return;
+        }
+
+        if (CaltopoClient.DebugLevel > CaltopoClient.DebugLevelDebug) {
+            CTInfo(TAG, "updateMapFinished() dumping map to logfile...");
+            CTInfo(TAG, updateMapOp.responseString());
+        }
+        try {
+            parseMapUpdate(updateMapOp.responseJson.optJSONObject("state"));
+        } catch (Exception e) {
+            CTError(TAG, "updateMapFinished(): parseMapUpdate() raised. ", e);
+        }
+    }
 
     /**
      * Called when openMapOp completed.
@@ -274,9 +377,9 @@ public class CaltopoClientMap {
             return;
         }
 
-        if (!mapDumpedToLog) {
-            CTDebug(TAG, "openMapFinished() dumping map to logfile...");
-            CTDebug(TAG, openMapOp.responseString());
+        if (CaltopoClient.DebugLevel > CaltopoClient.DebugLevelDebug && !mapDumpedToLog) {
+            CTInfo(TAG, "openMapFinished() dumping map to logfile...");
+            CTInfo(TAG, openMapOp.responseString());
             mapDumpedToLog = true; // this means map is up.
         }
 
@@ -287,16 +390,29 @@ public class CaltopoClientMap {
         }
     }
 
-    public CtLineProperty getArchiveLineProp() {
-        if (null == archiveLineProp)
-            archiveLineProp = new CtLineProperty(2, 0.5F, "#ff00ff", "solid");
-        return archiveLineProp;
+    private JSONObject parseR2cMarker(JSONArray ipAddrsObj, JSONObject feature, JSONObject prop) throws JSONException {
+        JSONObject marker = new JSONObject();
+        marker.put("ipaddrs", ipAddrsObj);
+        marker.put("name", prop.optString("r2c-name"));
+        marker.put("id", feature.optString("id"));
+        marker.put("feature", feature);
+        JSONObject geometry = feature.optJSONObject("geometry");
+        if (null != geometry) {
+            JSONArray coordinates = geometry.optJSONArray("coordinates");
+            if (null != coordinates && coordinates.length() > 1) {
+                marker.put("lat", coordinates.optString(1));
+                marker.put("lng", coordinates.optString(0));
+            }
+        }
+        return marker;
     }
+
 
     /* Returns null if the map isn't up and/or the track folder isn't yet known,
      * otherwise returns an array of any host entries that were found, each of the form:
      *   {
-     *      ipaddr: <ipaddr>,
+     *      ipaddrs: [{"ipaddr":"<ipaddr1>","intf":"<intf>"},...],
+     *      name: <deviceName>,
      *      lat: <lat>,
      *      lng: <lng>,
      *      id: <marker_uuid>
@@ -304,11 +420,6 @@ public class CaltopoClientMap {
      */
     public void findR2cPeers(@NonNull JSONArray markerFeatures) {
         r2cPeers = new JSONArray();
-        if (0 == markerFeatures.length()) {
-            processPeerList();
-            return;
-        }
-
         try {
             for (int i = 0; i < markerFeatures.length(); i++) {
                 JSONObject feature = markerFeatures.optJSONObject(i);
@@ -316,26 +427,16 @@ public class CaltopoClientMap {
                 if (null == prop) continue;
                 String featureFolderId = prop.optString("folderId");
                 if (featureFolderId.equals(folderId)) {
-                    String ipaddr = prop.optString("r2c-ipaddr");
-                    if (ipaddr.isEmpty()) continue;
-                    // found one of our markers in the drone folder:
-                    JSONObject marker = new JSONObject();
-                    marker.put("ipaddr", ipaddr);
-                    marker.put("uuid", prop.optString("r2c-uuid"));
-                    marker.put("id", feature.optString("id"));
-                    marker.put("feature", feature);
-                    JSONObject geometry = feature.optJSONObject("geometry");
-                    if (null != geometry) {
-                        JSONArray coordinates = geometry.optJSONArray("coordinates");
-                        if (null != coordinates && coordinates.length() > 1) {
-                            marker.put("lat", coordinates.optString(1));
-                            marker.put("lng", coordinates.optString(0));
-                        }
+                    String ipAddrsString = prop.optString("r2c-ipaddrs");
+                    if (!ipAddrsString.isEmpty()) {
+                        JSONArray ipAddrsObj = new JSONArray(ipAddrsString);
+                        r2cPeers.put(parseR2cMarker(ipAddrsObj, feature, prop));
+                    } else {
+                        CTDebug(TAG, "Ignoring non-R2C marker in our folder:\n" + feature.toString(4));
                     }
-                    r2cPeers.put(marker);
                 }
             }
-            CTDebug(TAG, "getR2cPeer() returning: " + r2cPeers.toString(4));
+            CTDebug(TAG, "getR2cPeer() found peers: " + r2cPeers.toString(4));
         } catch (Exception e) {
             CTError(TAG, "getR2cPeers(): Error parsing map.", e);
         }
@@ -346,56 +447,50 @@ public class CaltopoClientMap {
     public static void UpdateMyLocation(@NonNull android.location.Location location) {
         if ( null == MyLocation || !MyLocation.hasAccuracy() ||
                 (location.hasAccuracy() && location.getAccuracy() < MyLocation.getAccuracy())) {
+            CTDebug(TAG, String.format(Locale.US, "UpdateMyLocation(): lat:%.7f, lng:%.7f, accuracy:%.3fm",
+                    location.getLatitude(), location.getLongitude(), location.getAccuracy()));
             MyLocation = location;
+            for (CaltopoClientMap map : Maps) map.updateMyMarker(null);
         }
     }
 
-    private int GetPeerCount() {
-        return (null == r2cPeers) ? 0: r2cPeers.length();
-    }
-
-    @Nullable
-   private String GetPeerAddress(int peerOffset) {
-        if (peerOffset < r2cPeers.length()) {
-            JSONObject peer = r2cPeers.optJSONObject(peerOffset);
-            return peer.optString("ipaddr");
-        }
-        return null;
-    }
-
-
-    /* Returns distance from lat/lng to peer in meters or Float.NaN if bad parameter.
+    /* Could not establish a connection to the specified client or it
+     * stopped responding or it sent a message saying it was going away.
+     * Hopefully it will remove it's marker from the map
      */
-    private double GetDistanceToPeerInMeters(int peerOffset, double lat, double lng) {
-        float[] dbResult = {Float.NaN};
-        if (peerOffset >= r2cPeers.length()) return Float.NaN;
-        JSONObject peer = r2cPeers.optJSONObject(peerOffset);
-        if (null == peer) return Float.NaN;
-        double myLat = peer.optDouble("lat");
-        double myLng = peer.optDouble("lng");
-        if (Double.NaN == lat || Double.NaN == lng || Double.NaN == myLat || Double.NaN == myLng) return Float.NaN;
-        Location.distanceBetween(lat, lng, myLat, myLng, dbResult);
-        return dbResult[0];
+    public static void RemoveClient(R2CRest client) {
+        for (CaltopoClientMap map : Maps) {  // remove the specified client from all our maps:
+            R2CRest mappedClient = map.clientIdMap.remove(client.getRemoteUUID());
+            if (null != mappedClient) {
+                CTDebug(TAG, String.format(Locale.US, "Removed %s client from %s", mappedClient.getPeerName(), map.mapId));
+            }
+        }
+    }
+
+    public static void AddClient(R2CRest client) {
+        if (null != CurrentMap) CurrentMap.addClient(client);
+    }
+
+    private void addClient(@NonNull R2CRest client) {
+        clientIdMap.put(client.getRemoteUUID(), client);
     }
 
     private void processPeerList() {
         JSONObject myMarker = null;
-        String myIpAddr = R2CRest.MyPublicIp();
-        float[] dbResult = {Float.NaN};
-        double accuracyInMeters = 0.0;
+        JSONArray myIpAddresses = R2CRest.GetMyIpAddresses();
+        double accuracyInMeters;
 
-        if (null != folderId && null != archiveFolderId) mapIsUp = true;
-        if (!mapIsUp) {
+        if (null == folderId || null == archiveFolderId) {
             CTDebug(TAG, "processPeerList(): waiting for map processing to complete...");
             DelayedExec.RunAfterDelayInMsec(this::processPeerList, 1000);
             return;
         }
-        if (null == myIpAddr && waitForGpsAccuracy++ < 5) {
+        if (0 == myIpAddresses.length() && waitForGpsAccuracy++ < 5) {
             CTDebug(TAG, "processPeerList(): waiting for internet connectivity...");
             DelayedExec.RunAfterDelayInMsec(this::processPeerList, 1000);
             return;
         }
-        if (null == MyLocation && waitForGpsAccuracy++ < 5) {
+        if (null == MyLocation && waitForGpsAccuracy++ < MAX_MAP_STARTUP_DELAY_IN_SECONDS) {
             CTDebug(TAG, "processPeerList(): No Location yet...retrying");
             DelayedExec.RunAfterDelayInMsec(this::processPeerList, 1000);
             waitForGpsAccuracy++;
@@ -403,86 +498,39 @@ public class CaltopoClientMap {
         }
         if (null != MyLocation) {
             accuracyInMeters = MyLocation.getAccuracy();
-            if ((!MyLocation.hasAccuracy() || accuracyInMeters > 10.0) && waitForGpsAccuracy++ < 5) {
+            if ((!MyLocation.hasAccuracy() || accuracyInMeters > 30.0) && waitForGpsAccuracy++ < MAX_MAP_STARTUP_DELAY_IN_SECONDS) {
                 ShowToast(String.format(Locale.US, "Location accuracy of %.3f meters isn't great - waiting for better accuracy.",
                         accuracyInMeters));
-                DelayedExec.RunAfterDelayInMsec(this::processPeerList, 5000);
+                DelayedExec.RunAfterDelayInMsec(this::processPeerList, 1000);
                 waitForGpsAccuracy++;
                 return;
             }
 
             CTDebug(TAG, String.format(Locale.US, "My location is %.7f,%.7f w/in %.3f meters. My UUID is %s",
                     MyLocation.getLatitude(), MyLocation.getLongitude(), accuracyInMeters, MyUUID));
+        } else {
+            CTError(TAG, "processPeerList(): bad/no gps - I have no idea where I am.");
         }
 
-        // find my Marker in the list of peers and fire-up clients for the others:
+        // look for my Marker in the list of peers and fire-off client connections for the others:
         for (int i=0; i<r2cPeers.length(); i++) {
             JSONObject peer = r2cPeers.optJSONObject(i);
-            if (peer.optString("id").equals(MyUUID)) {
+            String peerUUID = peer.optString("id");
+            if (peerUUID.equals(MyUUID)) {
                 myMarker = peer;
                 CTDebug(TAG, "Found marker with my UUID: " + MyUUID);
-            } else if (peer.optString("uuid").equals(MyUUID)) {
-                myMarker = peer;// found my marker.
             } else {
-                String peerIpAddr = peer.optString("ipaddr");
-                if (!peerIpAddr.isEmpty()) R2CRest.ClientForRemoteIpAddr(peerIpAddr);
+                clientIdMap.put(peerUUID, R2CRest.ClientForRemoteR2c(peer, this));
             }
         }
 
         long timeNowInMilliseconds = System.currentTimeMillis();
         String timeString = String.valueOf(timeNowInMilliseconds);
         if (null != myMarker) {
-            // This can happen when app is terminated while internet is down.
-            boolean updateRequired = false;
+            // Not a clean shutdown previously - this can happen when app is terminated while internet is down.
             JSONObject updateFeature = myMarker.optJSONObject("feature");
-            if (null == updateFeature) {
-                CTError(TAG, "processPeerList() marker missing feature: " + myMarker);
-                return;
-            }
-            String markerIpAddr = myMarker.optString("ipaddr");
-            try {
-                if (!markerIpAddr.equals(myIpAddr)) {
-                    myMarker.put("ipaddr", myIpAddr);
-                    updateRequired = true;
-                }
-                if (null != MyLocation && MyLocation.hasAccuracy()) {
-                    double lat = myMarker.optDouble("lat");
-                    double lng = myMarker.optDouble("lng");
-                    Location.distanceBetween(lat, lng, MyLocation.getLatitude(), MyLocation.getLongitude(), dbResult);
-                    if (dbResult[0] >= accuracyInMeters) {
-                        JSONObject geometry = updateFeature.optJSONObject("geometry");
-                        JSONArray coordinates;
-                        if (null == geometry) {
-                            geometry = new JSONObject();
-                            coordinates = new JSONArray();
-                            geometry.put("coordinates", coordinates);
-                            updateFeature.put("geometry", geometry);
-                        }
-                        coordinates = geometry.optJSONArray("coordinates");
-                        if (null == coordinates) {
-                            coordinates = new JSONArray();
-                            geometry.put("coordinates", coordinates);
-                        }
-                        coordinates.put(0, lng);
-                        coordinates.put(1, lat);
-                        updateRequired = true;
-                    }
-                }
-                if (updateRequired) {
-                    JSONObject prop = updateFeature.optJSONObject("properties");
-                    if (null == prop) {
-                        prop = new JSONObject();
-                        updateFeature.put("properties", prop);
-                    }
-                    prop.put("updated", timeString);
-                    prop.put("-updated-on", timeString);
-                    myMarkerOp = Csp.editObjectWithId("Marker", myMarker.optString("id"),
-                            updateFeature, this::myMarkerCompleted);
-                    CTDebug(TAG, "addOurMarker() (After): " + updateFeature.toString(4));
-                }
-            } catch (Exception e) {
-                CTError(TAG, "addOurMaker() raised: ", e);
-            }
+            updateMyMarker(updateFeature);
+
         } else { // we get to create our marker from scratch - yipee!
             CTDebug(TAG, String.format(Locale.US,
                     "Didn't find our existing marker in %d peers, so adding a new one:", r2cPeers.length()));
@@ -490,36 +538,107 @@ public class CaltopoClientMap {
             try {
                 prop.put("updated", timeString);
                 prop.put("-updated-on", timeString);
-                prop.put("r2c-ipaddr", myIpAddr);
+                prop.put("r2c-ipaddrs", myIpAddresses.toString());
+                prop.put("r2c-name", DebugActivity.MyDeviceName);
                 prop.put("marker-color", "#0000FF");
             } catch (Exception e) {
-                CTError(TAG, "Make compiler happy.", e);
+                CTError(TAG, "put() raised.", e);
             }
             if (null != MyLocation) {
                 myMarkerOp = Csp.addMarker(MyLocation.getLatitude(), MyLocation.getLongitude(),
-                        "R2C", "radiotower", folderId, MyUUID, prop, this::myMarkerCompleted);
+                        "R2C: " + DebugActivity.MyDeviceName, "radiotower", folderId, MyUUID, prop, this::myMarkerCompleted);
             }
         }
-        if (null != folderId && null != archiveFolderId) mapIsUp = true;
+        mapIsUp = true;
+        if (!mapCheckerDelay.isRunning()) mapCheckerDelay.start(() ->
+                        updateMyMarker(null), MapUpdateTimeInSeconds * 1000,
+                MapUpdateTimeInSeconds * 1000);
     }
 
     private void myMarkerCompleted() {
         if (!myMarkerOp.isDone() || myMarkerOp.fail()) {
             CTError(TAG, "Not able to create marker: " + myMarkerOp.response);
+        } else {
+            CTDebug(TAG, "marker added.");
         }
     }
 
-    private void lookForOldShapes() {
+    private void updateMyMarker(@Nullable JSONObject feature) {
+        if (null == feature) {
+            if (null == myMarkerOp || !myMarkerOp.isDone() || !myMarkerOp.success()) return;
+            feature = myMarkerOp.getResponse();
+            if (null == feature) return;
+        }
+
+        // only want to do this once - after map is up and stabilized:
+        if (null == updateMapOp) {
+            CTDebug(TAG, "updating map connection()");
+            updateMapOp = Csp.openMap(mapId, this::updateMapFinished);
+        }
+
+        JSONObject geometry = feature.optJSONObject("geometry");
+        if (null != MyLocation && MyLocation.hasAccuracy()) try {
+            JSONArray coordinates;
+            if (null == geometry) {
+                geometry = new JSONObject();
+                coordinates = new JSONArray();
+                geometry.put("coordinates", coordinates);
+                feature.put("geometry", geometry);
+            } else {
+                coordinates = geometry.optJSONArray("coordinates");
+                if (null == coordinates) {
+                    coordinates = new JSONArray();
+                    geometry.put("coordinates", coordinates);
+                }
+            }
+            coordinates.put(0, MyLocation.getLongitude());
+            coordinates.put(1, MyLocation.getLatitude());
+        } catch (Exception e) {
+            CTError(TAG, "updateMyMarker() raised. ", e);
+        }
+        try {
+            JSONObject prop = feature.optJSONObject("properties");
+            if (null == prop) {
+                prop = new JSONObject();
+                feature.put("properties", prop);
+            }
+            long timeNowInMilliseconds = System.currentTimeMillis();
+            String timeString = String.valueOf(timeNowInMilliseconds);
+            prop.put("description", r2cPeerConnectionStats());
+            prop.put("updated", timeString);
+            prop.put("-updated-on", timeString);
+            Csp.editObjectWithId("Marker", MyUUID, feature, null);
+        } catch (Exception e) {
+            CTError(TAG, "updateMyMarker() raised.", e);
+        }
+    }
+
+    @NonNull
+    public String r2cPeerConnectionStats() {
+        StringBuilder builder = new StringBuilder();
+        for (Map.Entry<String,R2CRest>map : R2CRest.GetCloneOfPeerHashtable().entrySet()) {
+            String uuid = map.getKey();
+            R2CRest r2cClient = map.getValue();
+            String peerName = r2cClient.getPeerName();
+            builder.append(peerName)
+                    .append(":")
+                    .append(r2cClient.stats())
+                    .append("\n");
+        }
+        return builder.toString();
+    }
+
+    private void lookForExistingLiveTracks() {
         if (null == folderId || null == archiveFolderId) return;
         long timeNowInMilliseconds = System.currentTimeMillis();
         long maxTrackAgeInMilliseconds = CaltopoClient.GetNewTrackDelayInSeconds() * 1000;
 
         CTInfo(TAG, String.format(Locale.US,
-                "Parsing %d features to check for idle items in the drone folder",
-                shapeFeatures.length()));
+                "Parsing %d liveTracks to check for idle items in the drone folder",
+                myLiveTracksInThisMap.length()));
 
-        while (0 != shapeFeatures.length()) {
-            JSONObject feature = (JSONObject)shapeFeatures.remove(0);
+        while (0 != myLiveTracksInThisMap.length()) {
+            JSONObject feature = (JSONObject)myLiveTracksInThisMap.remove(0);
             JSONObject prop = feature.optJSONObject("properties");
             if (null == prop) continue;
 
@@ -529,21 +648,22 @@ public class CaltopoClientMap {
 
             // found a feature in the drone folder.
             String featureClass = prop.optString("class", null);
-            CTDebug(TAG, String.format(Locale.US, "Found a %s in drone folder", featureClass));
+            String title = prop.optString("title");
+            CTDebug(TAG, String.format(Locale.US, "Found a %s:%s in drone folder", featureClass, title));
             String lastUpdatedStr = prop.optString("updated", "");
             long lastUpdatedInMilliseconds = Long.parseLong(lastUpdatedStr);
             long trackAgeInMilliseconds = timeNowInMilliseconds - lastUpdatedInMilliseconds;
 
             if (trackAgeInMilliseconds < maxTrackAgeInMilliseconds) {
                 CTDebug(TAG, String.format(Locale.US,
-                        "%s feature last update was only %.3f seconds ago - ignoring",
-                        featureClass, (double)trackAgeInMilliseconds / 1000.0));
+                        "%s:%s last update was only %.3f seconds ago - ignoring",
+                        featureClass, title, (double)trackAgeInMilliseconds / 1000.0));
                 continue;
             }
 
             // found a feature in the drone folder old enough to archive.
-            CTDebug(TAG, String.format(Locale.US, "%s last updated %.3f seconds ago - archiving.",
-                    featureClass, (double)trackAgeInMilliseconds/1000.0));
+            CTDebug(TAG, String.format(Locale.US, "%s:%s last updated %.3f seconds ago - archiving.",
+                    featureClass, title, (double)trackAgeInMilliseconds/1000.0));
             archiveFeature(feature, featureClass, timeNowInMilliseconds);
         }
     }
@@ -556,7 +676,6 @@ public class CaltopoClientMap {
     public void archiveFeature(@NonNull JSONObject feature, @NonNull String featureClass,
                                long timeNowInMilliseconds) {
         String timeString = String.valueOf(timeNowInMilliseconds);
-        if (null == archiveLineProp) getArchiveLineProp();
         if (null == archiveFolderId) {
             CTError(TAG, "archiveFeature(): can't archive - folder not created yet.");
             return;
@@ -573,10 +692,10 @@ public class CaltopoClientMap {
                 prop = new JSONObject();
                 feature.put("properties", prop);
             }
-            prop.put("stroke", archiveLineProp.color);
-            prop.put("stroke-width", archiveLineProp.width);
-            prop.put("stroke-opacity", archiveLineProp.opacity);
-            prop.put("pattern", archiveLineProp.pattern);
+            prop.put("stroke", ArchiveLineProp.color);
+            prop.put("stroke-width", ArchiveLineProp.width);
+            prop.put("stroke-opacity", ArchiveLineProp.opacity);
+            prop.put("pattern", ArchiveLineProp.pattern);
             prop.put("folderId", archiveFolderId);
             prop.put("updated", timeString);
             prop.put("-updated-on", timeString);
@@ -592,7 +711,8 @@ public class CaltopoClientMap {
     }
 
     public boolean getMapIsUp() {
-        return this.mapIsUp;
+        return (this.mapIsUp &&
+                (null != updateMapOp && updateMapOp.isDone()));
     }
 
     /* N.B. map can be up, but folders not yet created, in which case these
@@ -610,14 +730,15 @@ public class CaltopoClientMap {
 
     public static void Shutdown() {
         if (null != Csp) try {
-            if (null != Maps) for (CaltopoClientMap map : Maps) {
+            for (CaltopoClientMap map : Maps) {
+                map.mapCheckerDelay.stop();
                 for (CaltopoLiveTrack track : map.liveTracks) {
                     CTDebug(TAG, "ShutDown() - shutting down track: " + track.getTrackLabel());
                     track.archiveTrackOnCaltopo();
                 }
             }
             CaltopoOp op = Csp.deleteMarkerWithId(MyUUID, null);
-            op.syncOpJSONObject(5);
+            op.syncOpJSONObject(MAX_CALTOPO_OP_DURATION_IN_SECONDS);
             if (op.success()) {
                 CTDebug(TAG, String.format(Locale.US, "Marker removed in %.3f seconds",
                         (double)op.roundTripTimeInMsec() / 1000.0));

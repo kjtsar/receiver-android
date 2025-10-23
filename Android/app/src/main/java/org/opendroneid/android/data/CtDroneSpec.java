@@ -72,9 +72,6 @@ public class CtDroneSpec implements Comparable<CtDroneSpec>, Serializable {
     @Nullable
     public R2CRest getMyR2cOwner() {return ownerR2c;}
 
-    public void setMyLiveTrack(@Nullable CaltopoLiveTrack liveTrack) {myLiveTrack = liveTrack;}
-    @Nullable
-    public CaltopoLiveTrack getMyLiveTrack() {return myLiveTrack;}
     public String setMappedId(@NonNull String newMappedId) {
         String oldString= mappedId;
         String newStr = newMappedId.replaceAll("[^a-zA-Z0-9]", "");
