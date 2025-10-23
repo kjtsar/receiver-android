@@ -6,13 +6,16 @@
  */
 package org.opendroneid.android.app;
 
+import static org.opendroneid.android.data.CaltopoClient.CTDebug;
 import android.Manifest;
+
+import androidx.appcompat.app.AlertDialog;
 import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProvider;
 
-import android.annotation.TargetApi;
 import android.bluetooth.BluetoothAdapter;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -49,26 +52,25 @@ import com.google.android.material.snackbar.Snackbar;
 
 import org.opendroneid.android.BuildConfig;
 import org.opendroneid.android.Constants;
-import org.opendroneid.android.PermissionUtils;
 import org.opendroneid.android.R;
-import org.opendroneid.android.log.LogWriter;
 import org.opendroneid.android.bluetooth.BluetoothScanner;
-import org.opendroneid.android.bluetooth.WiFiNaNScanner;
-import org.opendroneid.android.bluetooth.WiFiBeaconScanner;
+import org.opendroneid.android.data.CaltopoClient;
+import org.opendroneid.android.data.CaltopoClientMap;
+import org.opendroneid.android.data.CtDroneSpec;
+import org.opendroneid.android.data.WaypointTrack;
+import org.opendroneid.android.log.LogWriter;
 import org.opendroneid.android.bluetooth.OpenDroneIdDataManager;
 import org.opendroneid.android.data.AircraftObject;
 
 import java.io.File;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.Locale;
 import java.util.Set;
 
 public class DebugActivity extends AppCompatActivity {
-    BluetoothScanner btScanner;
-    WiFiNaNScanner wiFiNaNScanner;
-    WiFiBeaconScanner wiFiBeaconScanner;
 
     private AircraftViewModel mModel;
     OpenDroneIdDataManager dataManager;
@@ -81,15 +83,30 @@ public class DebugActivity extends AppCompatActivity {
 
     public static final String SHARED_PREF_NAME = "DebugActivity";
     public static final String SHARED_PREF_ENABLE_LOG = "EnableLog";
+
+    public static String MyDeviceName = "unknown";
+
+    private static boolean RestartingFlag = false;
+
     private MenuItem mMenuLogItem;
 
-    private AircraftMapView mMapView;
 
-    private File loggerFile;
-    private LogWriter logger;
+//    private AircraftMapView mMapView;
+
+    private static File loggerFile;
+    private static LogWriter logger;
 
     private Handler handler;
     private Runnable runnableCode;
+    public OpenDroneIdDataManager getDataManager() {return dataManager;}
+    public LogWriter getLogger() {return logger;}
+    private static DebugActivity appActivity = null;
+    public static DebugActivity getDebugActivity() {return appActivity;}
+    public static Context getAppContext() {
+        return (null != appActivity) ? appActivity.getApplicationContext() : null;
+    }
+    private boolean initializedCalled;
+    private ArrayList <String>outstandingPermissionsList = new ArrayList<>();
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
@@ -108,39 +125,38 @@ public class DebugActivity extends AppCompatActivity {
         return true;
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
     private void checkBluetoothSupport(Menu menu) {
-        Object object = getSystemService(BLUETOOTH_SERVICE);
-        if (object == null)
-            return;
-        BluetoothAdapter bluetoothAdapter = ((android.bluetooth.BluetoothManager) object).getAdapter();
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bluetoothAdapter.isLeCodedPhySupported()) {
+        BluetoothAdapter bluetoothAdapter = BluetoothScanner.getBluetoothAdapter(this);
+        if (null == bluetoothAdapter) return;
+        MyDeviceName = bluetoothAdapter.getName();
+        if (bluetoothAdapter.isLeCodedPhySupported()) {
             menu.findItem(R.id.coded_phy).setTitle(getString(R.string.coded_phy_supported));
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bluetoothAdapter.isLeExtendedAdvertisingSupported()) {
+        if (bluetoothAdapter.isLeExtendedAdvertisingSupported()) {
             menu.findItem(R.id.extended_advertising).setTitle(getString(R.string.ea_supported));
         }
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
     private void checkNaNSupport(Menu menu) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI_AWARE)) {
+        if (getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI_AWARE)) {
             menu.findItem(R.id.wifi_nan).setTitle(getString(R.string.nan_supported));
         }
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     private void checkWiFiSupport(Menu menu) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            menu.findItem(R.id.wifi_beacon_scan).setTitle(getString(R.string.wifi_beacon_scan_supported));
-        }
+        menu.findItem(R.id.wifi_beacon_scan).setTitle(getString(R.string.wifi_beacon_scan_supported));
     }
 
     private void showHelpMenu() {
         HelpMenu helpMenu = HelpMenu.newInstance();
         FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
         helpMenu.show(transaction, getString(R.string.Help));
+    }
+
+    private void showCaltopoConfigPanel() {
+        CaltopoSettings configPanel = CaltopoSettings.newInstance();
+        FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
+        configPanel.show(transaction, "CaltopoSettings");
     }
 
     @Override
@@ -160,18 +176,9 @@ public class DebugActivity extends AppCompatActivity {
             mMenuLogItem.setChecked(enabled);
             if (enabled) {
                 createNewLogfile();
-                if (wiFiNaNScanner != null)
-                    wiFiNaNScanner.setLogger(logger);
-                if (wiFiBeaconScanner != null)
-                    wiFiBeaconScanner.setLogger(logger);
             } else {
                 if (logger != null)
                     logger.close();
-                btScanner.setLogger(null);
-                if (wiFiNaNScanner != null)
-                    wiFiNaNScanner.setLogger(null);
-                if (wiFiBeaconScanner != null)
-                    wiFiBeaconScanner.setLogger(null);
             }
             return true;
         } else if (id == R.id.log_location) {
@@ -182,9 +189,18 @@ public class DebugActivity extends AppCompatActivity {
                 message = getString(R.string.Logging_not_activated);
             showToast(message);
             return true;
+        } else if (id == R.id.caltopo) {
+            showCaltopoConfigPanel();
+        } else if (id == R.id.caltopoConfig) {
+            CaltopoClient.RequestLoadConfigFile();
+        } else if (id == R.id.version) {
+            showToast(BuildConfig.BUILD_TIME);
+            showToast(BuildConfig.BUILD_TIME);
         }
+/*
         if (BuildConfig.USE_GOOGLE_MAPS)
             return mMapView.changeMapType(item);
+ */
         return false;
     }
 
@@ -209,28 +225,71 @@ public class DebugActivity extends AppCompatActivity {
     }
 
     private void createNewLogfile() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED ||
-                    ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                Log.e(TAG, "createNewLogfile:  Did not get BLUETOOTH_SCAN or BLUETOOTH_CONNECT");
-                showToast(getString(R.string.nearby_not_granted));
-                forceStopApp();
-                return;
-            }
-        }
-        loggerFile = getLoggerFileDir(btScanner.getBluetoothAdapter().getName());
+        if (null != loggerFile) return;
+        loggerFile = getLoggerFileDir(getName());
 
         try {
             logger = new LogWriter(loggerFile);
         } catch (IOException e) {
-            e.printStackTrace();
+            CaltopoClient.CTError(TAG, "createNewLogfile(): ", e);
         }
-        btScanner.setLogger(logger);
     }
+    public String getName() {
+        return getApplication().getProcessName();
+    }
+    /*
+    public void requestTurnOnBluetooth() {
+        ActivityResultLauncher enableBluetoothLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(), result -> {
+                    if (result.getResultCode() == Activity.RESULT_OK) {
+                        CaltopoClient.CTDebug(TAG, "requestTurnOnBluetooth(): Success");
+                    } else {
+                        CaltopoClient.CTDebug(TAG, "requestTurnOnBluetooth(): fail");
+                    }
+                }
+        );
+        Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+        enableBluetoothLauncher.launch(enableBtIntent);
 
+        BluetoothAdapter bluetoothAdapter = BluetoothScanner.getBluetoothAdapter(this);
+        if (bluetoothAdapter == null) {
+            CaltopoClient.CTError(TAG, "device doesn't support bluetooth.");
+        } else if (!bluetoothAdapter.isEnabled()) {
+            CaltopoClient.CTDebug(TAG, "Requesting enable bluetooth...");
+            requestTurnOnBluetooth();
+        } else {
+            CaltopoClient.CTDebug(TAG, "Bluetooth is enabled.");
+        }
+    }
+*/
+    private void CheckPermission(@NonNull String permission) {
+        if (ActivityCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+            CTDebug(TAG, String.format(Locale.US, "CheckPermission(): Requesting '%s'.", permission));
+            outstandingPermissionsList.add(permission);
+        } else {
+            CTDebug(TAG, String.format(Locale.US, "CheckPermission(): '%s' granted.",
+                    permission));
+        }
+    }
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (appActivity != null) {
+            CTDebug(TAG, "onCreate() with an existing activity.");
+            if (appActivity != this) {
+                RestartingFlag = true;
+                /* prevent ScanningService's PendingIntent tap from starting a new instance. */
+                CTDebug(TAG, "onCreate() restarting with new activity.");
+            }
+        }
+        appActivity = this;
+        initializedCalled = false;
+        CaltopoClient.InitializeForActivityAndContext(this, getApplicationContext());
+        String archivePathVal = CaltopoClient.GetArchivePath();
+        if (null == archivePathVal) {
+            Log.d(TAG, "Querying user for archiveDir()");
+            CaltopoClient.QueryUserForArchiveDir();
+        }
 
         setContentView(R.layout.activity_debug);
         mModel = new ViewModelProvider(this).get(AircraftViewModel.class);
@@ -243,72 +302,74 @@ public class DebugActivity extends AppCompatActivity {
         });
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            Log.d(TAG, "onCreate: TIRAMISU");
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-                Log.d(TAG, "onCreate: Requesting NEARBY_WIFI_DEVICES");
-                ActivityCompat.requestPermissions(this, new String[] { Manifest.permission.NEARBY_WIFI_DEVICES }, Constants.REQUEST_NEARBY_WIFI_DEVICES_PERMISSION);
-                return;
-            }
+            CheckPermission(Manifest.permission.NEARBY_WIFI_DEVICES);
+            CheckPermission(Manifest.permission.POST_NOTIFICATIONS);
         }
+
+        CheckPermission(Manifest.permission.ACCESS_COARSE_LOCATION);
+        CheckPermission(Manifest.permission.ACCESS_FINE_LOCATION);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Log.d(TAG, "onCreate: S version");
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                Log.d(TAG, "onCreate: Requesting BLUETOOTH_SCAN");
-                ActivityCompat.requestPermissions(this, new String[] { Manifest.permission.BLUETOOTH_SCAN }, Constants.REQUEST_BLUETOOTH_PERMISSION_SCAN);
-                return;
-            }
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                Log.d(TAG, "onCreate: Requesting BLUETOOTH_CONNECT");
-                ActivityCompat.requestPermissions(this, new String[] { Manifest.permission.BLUETOOTH_CONNECT }, Constants.REQUEST_BLUETOOTH_PERMISSION_CONNECT);
-                return;
-            }
+            CheckPermission(Manifest.permission.BLUETOOTH_SCAN);
+            CheckPermission(Manifest.permission.BLUETOOTH_CONNECT);
         }
 
-        finalizeOnCreate();
+        if (!outstandingPermissionsList.isEmpty()) {
+            String[] permArray = outstandingPermissionsList.toArray(new String[0]);
+            ActivityCompat.requestPermissions(this, permArray, Constants.REQUEST_BULK_PERMISSIONS);
+        } else {
+            finalizeOnCreate();
+            initialize();
+        }
     }
 
     private void finalizeOnCreate() {
-        Log.d(TAG, "finalizeOnCreate");
-        btScanner = new BluetoothScanner(this, dataManager);
-        createNewLogfile();
+        CTDebug(TAG, "finalizeOnCreate");
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI_AWARE)) {
-            WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-            if (!wifiManager.isWifiEnabled()) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    Intent panelIntent = new Intent(Settings.Panel.ACTION_WIFI);
-                    startActivityForResult(panelIntent, Constants.REQUEST_ENABLE_WIFI);
-                } else {
-                    wifiManager.setWifiEnabled(true);
-                }
-            }
+        WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        if (!wifiManager.isWifiEnabled()) {
+            Log.i(TAG, "finalizeOnCreate(): Requesting Internet Connectivity.");
+            Intent panelIntent = new Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY);
+            startActivity(panelIntent);
         }
 
-        BluetoothAdapter bluetoothAdapter = btScanner.getBluetoothAdapter();
+        BluetoothAdapter bluetoothAdapter = BluetoothScanner.getBluetoothAdapter(getAppContext());
         if (bluetoothAdapter != null) {
             // Is Bluetooth turned on?
             if (!bluetoothAdapter.isEnabled()) {
                 // Prompt user to turn on Bluetooth (logic continues in onActivityResult()).
-                Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-                startActivityForResult(enableBtIntent, Constants.REQUEST_ENABLE_BT);
-            } else {
-                // Check permission
-                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED ||
-                        ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                    Log.d(TAG, "finalizeOnCreate: Requesting FINE_LOCATION_PERMISSION_REQUEST_CODE permission");
-                    requestLocationPermission(Constants.FINE_LOCATION_PERMISSION_REQUEST_CODE);
-                } else {
-                    initialize();
+                try {
+                    CTDebug(TAG, "finalizeOnCreate(): Requesting Bluetooth Enable.");
+                    Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+                    startActivity(enableBtIntent);
+                } catch (SecurityException se) {
+                    CaltopoClient.CTError(TAG, String.format(Locale.US, "Not able to turn on bluetooth - %s", se));
                 }
             }
-        } else {
-            Log.e(TAG, "finalizeOnCreate: Bluetooth is not supported");
-            showToast(getString(R.string.bt_not_supported));
-            forceStopApp();
-            return;
         }
+        createNewLogfile();
+    }
+
+    private void initialize() {
+        if (initializedCalled) return;
+        CTDebug(TAG, "initialize()");
+        CaltopoClient.PermissionsGrantedWeShouldBeGoodToGo();
+        initializedCalled = true;
+        mModel.setAllAircraft(dataManager.getAircraft());
+
+        final Observer<Set<AircraftObject>> listObserver = airCrafts -> {
+            if (airCrafts == null)
+                return;
+            setTitle(String.format(Locale.US, "%d drones", airCrafts.size()));
+        };
+
+        mModel.getAllAircraft().observe(this, listObserver);
+
+        addDeviceList();
+
+        AircraftOsMapView mOsMapView = (AircraftOsMapView) getSupportFragmentManager().findFragmentById(R.id.mapView);
+            if (mOsMapView != null)
+                mOsMapView.setMapSettings();
 
         mFusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         locationRequest = new LocationRequest.Builder(10 * 1000) // 10 seconds
@@ -322,68 +383,18 @@ public class DebugActivity extends AppCompatActivity {
                 for (Location location : locationResult.getLocations()) {
                     if (location != null) {
                         dataManager.receiverLocation = location;
+                        CaltopoClientMap.UpdateMyLocation(location);
                     }
                 }
             }
         };
-    }
-
-    private void initialize() {
-        mModel.setAllAircraft(dataManager.getAircraft());
-
-        final Observer<Set<AircraftObject>> listObserver = airCrafts -> {
-            if (airCrafts == null)
-                return;
-            setTitle(String.format(Locale.US, "%d drones", airCrafts.size()));
-        };
-
-        mModel.getAllAircraft().observe(this, listObserver);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            wiFiNaNScanner = new WiFiNaNScanner(this, dataManager, logger);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-            wiFiBeaconScanner = new WiFiBeaconScanner(this, dataManager, logger);
-
-        addDeviceList();
-
-        if (BuildConfig.USE_GOOGLE_MAPS) {
-            mMapView = (AircraftMapView) getSupportFragmentManager().findFragmentById(R.id.mapView);
-            if (mMapView != null)
-                mMapView.setMapSettings();
-        } else {
-            AircraftOsMapView mOsMapView = (AircraftOsMapView) getSupportFragmentManager().findFragmentById(R.id.mapView);
-            if (mOsMapView != null)
-                mOsMapView.setMapSettings();
+        if (!RestartingFlag) {
+            CTDebug(TAG, String.format(Locale.US, "onCreate(): Starting ScanningService from activity 0x%x", this.hashCode()));
+            Intent serviceIntent = new Intent(this, ScanningService.class);
+            getApplicationContext().startForegroundService(serviceIntent);
         }
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == Constants.REQUEST_ENABLE_BT) {
-            if (resultCode == RESULT_OK) {
-                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED ||
-                        ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                    Log.d(TAG, "onMapReady: call request permission");
-                    requestLocationPermission(Constants.FINE_LOCATION_PERMISSION_REQUEST_CODE);
-                } else {
-                    initialize();
-                }
-            } else {
-                Log.e(TAG, "onActivityResult: User declined to enable Bluetooth, exit the app.");
-                showToast(getString(R.string.bt_not_enabled_leaving));
-                forceStopApp();
-            }
-        } else if (requestCode == Constants.REQUEST_ENABLE_WIFI) {
-            WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-            if (!wifiManager.isWifiEnabled()) {
-                Log.e(TAG, "onActivityResult: User declined to enable WiFi, exit the app.");
-                showToast(getString(R.string.wifi_not_enabled_leaving));
-                forceStopApp();
-            }
-        }
-    }
 
     public void addDeviceList() {
         FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
@@ -392,10 +403,10 @@ public class DebugActivity extends AppCompatActivity {
 
     @Override
     protected void onResume() {
-        Log.d(TAG, "onResume");
+        // Log.d(TAG, "onResume");
 
         // Wake the main Activity thread regularly, to update time counters and other UI elements
-        handler = new Handler();
+        handler = new Handler(Looper.getMainLooper());
         runnableCode = () -> {
             for (AircraftObject aircraft : dataManager.aircraft.values()) {
                 aircraft.updateShadowBasicId();
@@ -410,128 +421,154 @@ public class DebugActivity extends AppCompatActivity {
             if (mFusedLocationClient != null)
                 mFusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper());
 
-            if (btScanner != null)
-                btScanner.startScan();
         }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && wiFiNaNScanner != null)
-            wiFiNaNScanner.startScan();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && wiFiBeaconScanner != null)
-            wiFiBeaconScanner.startCountDownTimer();
 
         super.onResume();
     }
 
     @Override
     protected void onPause() {
-        Log.d(TAG, "onPause");
-
-        if (btScanner != null)
-            btScanner.stopScan();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && wiFiNaNScanner != null)
-            wiFiNaNScanner.stopScan();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && wiFiBeaconScanner != null)
-            wiFiBeaconScanner.stopScan();
+        // Log.d(TAG, "onPause");
 
         handler.removeCallbacks(runnableCode);
         if (mFusedLocationClient != null)
             mFusedLocationClient.removeLocationUpdates(locationCallback);
+        CTDebug(TAG, "onPause() archiving tracks...");
+        archiveTracks();
         super.onPause();
     }
 
-    public void requestLocationPermission(int requestCode) {
-        Log.d(TAG, "requestLocationPermission: request permission");
-
-        // Location permission has not been granted yet, request it.
-        PermissionUtils.requestPermission(this, requestCode,
-                Manifest.permission.ACCESS_FINE_LOCATION, false);
+    public void archiveTracks() {
+        try {
+            WaypointTrack.ArchiveTracks(this);
+        } catch (Exception e) {
+            CaltopoClient.CTError(TAG, "archiveTracks() raised:", e);
+        }
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
                                            @NonNull int[] grantResults) {
+
+        CTDebug(TAG, "In onRequestPermissionsResult()");
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == Constants.FINE_LOCATION_PERMISSION_REQUEST_CODE) {
-            Log.d(TAG, "onRequestPermissionsResult: back from request FINE_LOCATION");
-            if (PermissionUtils.isPermissionGranted(permissions, grantResults,
-                    Manifest.permission.ACCESS_FINE_LOCATION)) {
-                initialize();
-            } else {
-                Log.e(TAG, "onRequestPermissionsResult: Did not get ACCESS_FINE_LOCATION");
-                showToast(getString(R.string.permission_required_toast));
-                forceStopApp();
-                return;
-            }
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            Log.d(TAG, "onRequestPermissionsResult: TIRAMISU");
-            if (requestCode == Constants.REQUEST_NEARBY_WIFI_DEVICES_PERMISSION) {
-                Log.d(TAG, "onRequestPermissionsResult: REQUEST_NEARBY_WIFI_DEVICES_PERMISSION");
-                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-                    Log.e(TAG, "onRequestPermissionsResult: Did not get NEARBY_WIFI_DEVICES");
-                    showToast(getString(R.string.nearby_not_granted));
-                    forceStopApp();
-                    return;
-                }
-                else
-                {
-                    if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
-                        finalizeOnCreate();
-                    } else {
-                        Log.d(TAG, "onRequestPermissionsResult: Requesting BLUETOOTH_SCAN");
-                        ActivityCompat.requestPermissions(this, new String[] { Manifest.permission.BLUETOOTH_SCAN }, Constants.REQUEST_BLUETOOTH_PERMISSION_SCAN);
-                        return;
-                    }
-                }
-            }
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Log.d(TAG, "onRequestPermissionsResult: S version");
-            if (requestCode == Constants.REQUEST_BLUETOOTH_PERMISSION_SCAN) {
-                Log.d(TAG, "onRequestPermissionsResult: REQUEST_BLUETOOTH_PERMISSION_SCAN");
-                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                    Log.e(TAG, "onRequestPermissionsResult: Did not get BLUETOOTH_SCAN");
-                    showToast(getString(R.string.nearby_not_granted));
-                    forceStopApp();
-                    return;
-                }
-                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-                    finalizeOnCreate();
+        if (requestCode == Constants.REQUEST_BULK_PERMISSIONS) {
+            for (int i = 0; i < permissions.length; i++) {
+                int ix = outstandingPermissionsList.indexOf(permissions[i]);
+                outstandingPermissionsList.remove(ix);
+                if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
+                    CaltopoClient.CTError(TAG, "onRequestPermissionsResult: Did not get " + permissions[i]);
                 } else {
-                    Log.d(TAG, "onRequestPermissionsResult: Requesting BLUETOOTH_CONNECT");
-                    ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.BLUETOOTH_CONNECT}, Constants.REQUEST_BLUETOOTH_PERMISSION_CONNECT);
+                    CTDebug(TAG, "onRequestPermissionsResult(): Received " + permissions[i]);
                 }
             }
-            if (requestCode == Constants.REQUEST_BLUETOOTH_PERMISSION_CONNECT) {
-                Log.d(TAG, "onRequestPermissionsResult: REQUEST_BLUETOOTH_PERMISSION_CONNECT");
-                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                    Log.e(TAG, "onRequestPermissionsResult: Did not get BLUETOOTH_CONNECT");
-                    showToast(getString(R.string.nearby_not_granted));
-                    forceStopApp();
-                    return;
-                }
-                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
-                    finalizeOnCreate();
-                } else {
-                    Log.d(TAG, "onRequestPermissionsResult: Requesting BLUETOOTH_SCAN");
-                    ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.BLUETOOTH_SCAN}, Constants.REQUEST_BLUETOOTH_PERMISSION_SCAN);
-                }
-            }
+            finalizeOnCreate();
+            initialize();
+            return;
         }
+        CTDebug(TAG, String.format(Locale.US, "onRequestPermissionsResult(%d)", requestCode));
     }
 
-    void showToast(String message) {
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.R)
+    public void showToast(String message) {
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.R)
             Toast.makeText(getBaseContext(), message, Toast.LENGTH_LONG).show();
         else {
             Snackbar snackbar = Snackbar.make(findViewById(android.R.id.content).getRootView(), message, Snackbar.LENGTH_LONG);
             View snackView = snackbar.getView();
-            TextView snackTextView = (TextView) snackView.findViewById(com.google.android.material.R.id.snackbar_text);
+            TextView snackTextView = snackView.findViewById(com.google.android.material.R.id.snackbar_text);
+            snackTextView.setTextIsSelectable(true);
             snackTextView.setMaxLines(5);
             snackbar.show();
         }
+    }
+
+    public static void ConfirmActiveTrackLabelChange(CaltopoClient client, CtDroneSpec droneSpec, String existingLabel) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(getDebugActivity());
+
+        builder.setTitle("Change active track label");
+        builder.setMessage(String.format(Locale.US,"Change Label From:'%s' to '%s'",
+                existingLabel, droneSpec.getMappedId()));
+
+        // Positive button
+        builder.setPositiveButton("Yes", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                CTDebug(TAG, String.format(Locale.US, "User confirmed change track label From:'%s' to '%s'",
+                        existingLabel, droneSpec.getMappedId()));
+                dialog.dismiss();
+            }
+        });
+
+        // Negative button
+        builder.setNegativeButton("No", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                // User clicked "No", dismiss the dialog
+                CTDebug(TAG, "User cancelled track label change.");
+                dialog.dismiss();
+            }
+        });
+
+        // Create and show the AlertDialog
+        AlertDialog alertDialog = builder.create();
+        alertDialog.show();
+
+    }
+    private void confirmUserWishesToExit() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+
+        builder.setTitle("Exit Application");
+        builder.setMessage("Are you sure you want to exit?");
+
+        // Positive button
+        builder.setPositiveButton("Yes", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                CTDebug(TAG, "User confirmed intention to exit.");
+                finish();
+            }
+        });
+
+        // Negative button
+        builder.setNegativeButton("No", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                // User clicked "No", dismiss the dialog
+                CTDebug(TAG, "User cancelled exit.");
+
+                dialog.dismiss();
+                Toast.makeText(DebugActivity.this, "Exit cancelled", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        // Create and show the AlertDialog
+        AlertDialog alertDialog = builder.create();
+        alertDialog.show();
+    }
+
+    @Override
+    public void onBackPressed() {
+        CTDebug(TAG, "onBackButtonPressed()");
+        confirmUserWishesToExit();
+    }
+
+    @Override
+    public void onDestroy() {
+        if (this == appActivity) {
+            if (isFinishing()) {
+                CTDebug(TAG, "onDestroy() shutting down scanning service...");
+                Intent serviceIntent = new Intent(this, ScanningService.class);
+                stopService(serviceIntent);
+                CaltopoClient.Shutdown();
+                appActivity = null;
+                forceStopApp();
+                super.onDestroy();
+                return;
+            }
+            CTDebug(TAG, "onDestroy() archiving tracks...");
+            archiveTracks();
+        }
+        super.onDestroy();
     }
 
     void forceStopApp() {

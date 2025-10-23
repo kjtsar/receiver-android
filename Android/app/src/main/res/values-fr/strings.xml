@@ -7,7 +7,7 @@
 
 !-->
 <resources>
-    <string name="app_name">OpenDroneID</string>
+    <string name="app_name">RID2Caltopo</string>
     <string name="bt_rationale">Bluetooth/Nearby Devices is needed for this app to work.</string>
     <string name="nearby_not_granted">Nearby Devices/Bluetooth/Wi-Fi permission must be granted for this app to work.</string>
     <string name="bt_not_supported">Le terminal ne gère pas le Bluetooth.</string>
@@ -19,6 +19,14 @@
     <string name="Help">Aide</string>
     <string name="Log_enabled">Journalisation activée</string>
     <string name="Show_log_location">Afficher l\'emplacement du journal</string>
+    <string name="Caltopo">Caltopo</string>
+    <string name="Caltopo_Configuration">CaltopoCfg</string>
+    <string name="ct_groupid">Group Id</string>
+    <string name="ct_groupidVal"></string>
+    <string name="ct_minChgFt">Min Chg In Feet:</string>
+    <string name="ct_minChgFtVal">10</string>
+    <string name="ct_remoteid">Remote Id:</string>
+    <string name="ct_deviceid">Device Id:</string>
 
     <string name="coded_phy_not_supported">Coded Phy non supporté</string>
     <string name="coded_phy_supported">Coded Phy supporté</string>
@@ -123,5 +131,11 @@
         Go back, find the &quot;Developer options&quot; menu, scroll to &quot;Wi-Fi scan throttling&quot; and disable it.&lt;br&gt;</string>
     <string name="nanHelp">Reception of Wi-Fi Neighbor-aware Network remote ID signals is possible only if the device has support for Wi-Fi NaN.&lt;br&gt;
         See the claimed support for this device for this feature in the options menu.&lt;br&gt;</string>
+    <string name="hello_blank_fragment">Hello blank fragment</string>
+    <string name="ct_directButton">Direct</string>
+    <string name="ct_SaveButton">Save</string>
+    <string name="ct_closeButton">Close</string>
+    <string name="ct_archiveDirDesc">Archive Path:</string>
+    <string name="ct_archivePath">archive path</string>
 
 </resources>

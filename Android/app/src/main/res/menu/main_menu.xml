@@ -53,6 +53,12 @@ to be uncommented.
     </item>
     !-->
     <item
+        android:id="@+id/caltopo"
+        android:title="@string/Caltopo" />
+    <item
+        android:id="@+id/caltopoConfig"
+        android:title="Load Caltopo Config File" />
+    <item
         android:id="@+id/coded_phy"
         android:title="@string/coded_phy_not_supported"
         app:showAsAction="never" />
@@ -70,6 +76,5 @@ to be uncommented.
         app:showAsAction="never" />
     <item
         android:id="@+id/version"
-        android:title="@string/app_version"
-        app:showAsAction="never" />
+        android:title="@string/app_version"/>
 </menu>

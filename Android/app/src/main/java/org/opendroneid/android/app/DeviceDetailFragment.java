@@ -104,12 +104,76 @@ public class DeviceDetailFragment extends DialogFragment {
         infoUasId.setText(identification.getUasIdAsString());
     }
 
+    @Nullable
     @Override
-    public void onActivityCreated(@Nullable Bundle savedInstanceState) {
-        if (getActivity() == null)
-            return;
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
 
-        super.onActivityCreated(savedInstanceState);
+        View view = inflater.inflate(R.layout.aircraft_details, container, false);
+        msgVersion = view.findViewById(R.id.msgVersion);
+        receiveTime = view.findViewById(R.id.receiveTime);
+        conMac = view.findViewById(R.id.conMac);
+        conRssi = view.findViewById(R.id.conRssi);
+        conStarted = view.findViewById(R.id.conStarted);
+        conLastUpdate = view.findViewById(R.id.conLastUpdate);
+        conMsgDelta = view.findViewById(R.id.conMsgDelta);
+        distance = view.findViewById(R.id.distance);
+
+        infoLastUpdate1 = view.findViewById(R.id.infoLastUpdate1);
+        infoType1 = view.findViewById(R.id.infoType1);
+        infoIdType1 = view.findViewById(R.id.infoIdType1);
+        infoUasId1 = view.findViewById(R.id.infoUasId1);
+
+        infoLastUpdate2 = view.findViewById(R.id.infoLastUpdate2);
+        infoType2 = view.findViewById(R.id.infoType2);
+        infoIdType2 = view.findViewById(R.id.infoIdType2);
+        infoUasId2 = view.findViewById(R.id.infoUasId2);
+
+        posLastUpdate = view.findViewById(R.id.posLastUpdate);
+        status = view.findViewById(R.id.status);
+        direction = view.findViewById(R.id.direction);
+        horiSpeed = view.findViewById(R.id.horiSpeed);
+        vertSpeed = view.findViewById(R.id.vertSpeed);
+        lat = view.findViewById(R.id.lat);
+        lon = view.findViewById(R.id.lon);
+        altitudePressure = view.findViewById(R.id.altitudePressure);
+        altitudeGeodetic = view.findViewById(R.id.altitudeGeodetic);
+        heightType = view.findViewById(R.id.heightType);
+        height = view.findViewById(R.id.height);
+        horizontalAccuracy = view.findViewById(R.id.horizontalAccuracy);
+        verticalAccuracy = view.findViewById(R.id.verticalAccuracy);
+        baroAccuracy = view.findViewById(R.id.baroAccuracy);
+        speedAccuracy = view.findViewById(R.id.speedAccuracy);
+        timestamp = view.findViewById(R.id.timestamp);
+        timeAccuracy = view.findViewById(R.id.timeAccuracy);
+
+        authLastUpdate = view.findViewById(R.id.authLastUpdate);
+        authType = view.findViewById(R.id.authType);
+        authLength = view.findViewById(R.id.authLength);
+        authTimestamp = view.findViewById(R.id.authTimestamp);
+        authData = view.findViewById(R.id.authData);
+
+        selfIdLastUpdate = view.findViewById(R.id.selfIdLastUpdate);
+        selfIdType = view.findViewById(R.id.selfIdType);
+        selfIdDescription = view.findViewById(R.id.selfIdDescription);
+
+        systemLastUpdate = view.findViewById(R.id.systemLastUpdate);
+        operatorLocationType = view.findViewById(R.id.operatorLocationType);
+        classificationType = view.findViewById(R.id.classificationType);
+        systemLatitude = view.findViewById(R.id.systemLatitude);
+        systemLongitude = view.findViewById(R.id.systemLongitude);
+        systemAreaCount = view.findViewById(R.id.systemAreaCount);
+        systemAreaRadius = view.findViewById(R.id.systemAreaRadius);
+        systemAreaCeiling = view.findViewById(R.id.systemAreaCeiling);
+        systemAreaFloor = view.findViewById(R.id.systemAreaFloor);
+        category = view.findViewById(R.id.category);
+        classValue = view.findViewById(R.id.classValue);
+        systemAltitudeGeo = view.findViewById(R.id.systemAltitudeGeo);
+        systemTimestamp = view.findViewById(R.id.systemTimestamp);
+
+        operatorIdLastUpdate = view.findViewById(R.id.operatorIdLastUpdate);
+        operatorIdType = view.findViewById(R.id.operatorIdType);
+        operatorId = view.findViewById(R.id.operatorId);
+
         DetailViewModel model = new ViewModelProvider(getActivity()).get(DetailViewModel.class);
 
         model.connection.observe(getViewLifecycleOwner(), connection -> {
@@ -222,77 +286,6 @@ public class DeviceDetailFragment extends DialogFragment {
             operatorIdType.setText(String.valueOf(operatorIdData.getOperatorIdType()));
             operatorId.setText(operatorIdData.getOperatorIdAsString());
         });
-    }
-
-    @Nullable
-    @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
-
-        View view = inflater.inflate(R.layout.aircraft_details, container, false);
-        msgVersion = view.findViewById(R.id.msgVersion);
-        receiveTime = view.findViewById(R.id.receiveTime);
-        conMac = view.findViewById(R.id.conMac);
-        conRssi = view.findViewById(R.id.conRssi);
-        conStarted = view.findViewById(R.id.conStarted);
-        conLastUpdate = view.findViewById(R.id.conLastUpdate);
-        conMsgDelta = view.findViewById(R.id.conMsgDelta);
-        distance = view.findViewById(R.id.distance);
-
-        infoLastUpdate1 = view.findViewById(R.id.infoLastUpdate1);
-        infoType1 = view.findViewById(R.id.infoType1);
-        infoIdType1 = view.findViewById(R.id.infoIdType1);
-        infoUasId1 = view.findViewById(R.id.infoUasId1);
-
-        infoLastUpdate2 = view.findViewById(R.id.infoLastUpdate2);
-        infoType2 = view.findViewById(R.id.infoType2);
-        infoIdType2 = view.findViewById(R.id.infoIdType2);
-        infoUasId2 = view.findViewById(R.id.infoUasId2);
-
-        posLastUpdate = view.findViewById(R.id.posLastUpdate);
-        status = view.findViewById(R.id.status);
-        direction = view.findViewById(R.id.direction);
-        horiSpeed = view.findViewById(R.id.horiSpeed);
-        vertSpeed = view.findViewById(R.id.vertSpeed);
-        lat = view.findViewById(R.id.lat);
-        lon = view.findViewById(R.id.lon);
-        altitudePressure = view.findViewById(R.id.altitudePressure);
-        altitudeGeodetic = view.findViewById(R.id.altitudeGeodetic);
-        heightType = view.findViewById(R.id.heightType);
-        height = view.findViewById(R.id.height);
-        horizontalAccuracy = view.findViewById(R.id.horizontalAccuracy);
-        verticalAccuracy = view.findViewById(R.id.verticalAccuracy);
-        baroAccuracy = view.findViewById(R.id.baroAccuracy);
-        speedAccuracy = view.findViewById(R.id.speedAccuracy);
-        timestamp = view.findViewById(R.id.timestamp);
-        timeAccuracy = view.findViewById(R.id.timeAccuracy);
-
-        authLastUpdate = view.findViewById(R.id.authLastUpdate);
-        authType = view.findViewById(R.id.authType);
-        authLength = view.findViewById(R.id.authLength);
-        authTimestamp = view.findViewById(R.id.authTimestamp);
-        authData = view.findViewById(R.id.authData);
-
-        selfIdLastUpdate = view.findViewById(R.id.selfIdLastUpdate);
-        selfIdType = view.findViewById(R.id.selfIdType);
-        selfIdDescription = view.findViewById(R.id.selfIdDescription);
-
-        systemLastUpdate = view.findViewById(R.id.systemLastUpdate);
-        operatorLocationType = view.findViewById(R.id.operatorLocationType);
-        classificationType = view.findViewById(R.id.classificationType);
-        systemLatitude = view.findViewById(R.id.systemLatitude);
-        systemLongitude = view.findViewById(R.id.systemLongitude);
-        systemAreaCount = view.findViewById(R.id.systemAreaCount);
-        systemAreaRadius = view.findViewById(R.id.systemAreaRadius);
-        systemAreaCeiling = view.findViewById(R.id.systemAreaCeiling);
-        systemAreaFloor = view.findViewById(R.id.systemAreaFloor);
-        category = view.findViewById(R.id.category);
-        classValue = view.findViewById(R.id.classValue);
-        systemAltitudeGeo = view.findViewById(R.id.systemAltitudeGeo);
-        systemTimestamp = view.findViewById(R.id.systemTimestamp);
-
-        operatorIdLastUpdate = view.findViewById(R.id.operatorIdLastUpdate);
-        operatorIdType = view.findViewById(R.id.operatorIdType);
-        operatorId = view.findViewById(R.id.operatorId);
         return view;
     }
 }

@@ -19,8 +19,11 @@ import org.opendroneid.android.data.SelfIdData;
 import org.opendroneid.android.data.SystemData;
 import org.opendroneid.android.data.OperatorIdData;
 import org.opendroneid.android.log.LogMessageEntry;
+import org.opendroneid.android.data.CaltopoClient;
 
+import java.time.Instant;
 import java.util.Arrays;
+import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class OpenDroneIdDataManager {
@@ -62,8 +65,11 @@ public class OpenDroneIdDataManager {
                         String transportType) {
         OpenDroneIdParser.Message<?> message =
                 OpenDroneIdParser.parseData(data, 1, timeNano, logMessageEntry, receiverLocation);
-        if (message == null)
+        if (message == null) {
+            CaltopoClient.CTError(TAG, "Not able to parse NaN data.");
             return;
+        }
+        CaltopoClient.CTInfo(TAG, "Caltopo: Wireless NaN for NAN ID: " + peerHash);
         receiveData(timeNano, "NaN ID: " + peerHash, peerHash, 0, message, logMessageEntry, transportType);
     }
 
@@ -75,6 +81,70 @@ public class OpenDroneIdDataManager {
             return;
         receiveData(timeNano, mac, macLong, rssi, message, logMessageEntry, transportType);
     }
+    void updateCaltopo(AircraftObject ac, String transportType) {
+        Identification acId = ac.getIdentification1();
+
+        if (null == acId) return;
+        String rawStr = acId.getUasIdAsString();
+        if (null == rawStr) return;
+        // remove nulls and any other garbage from idstr:
+        String idStr = rawStr.replaceAll("[^\\.A-Z0-9]", "");
+        if (idStr.isEmpty()) {
+            if (CaltopoClient.DebugLevel > CaltopoClient.DebugLevelDebug) {
+                CaltopoClient.CTInfo(TAG, String.format(Locale.US,
+                        "updateCaltopo(): Ignoring message with invalid id from mac:0x%x transport:%s",
+                        ac.getMacAddress(), transportType));
+            }
+            return;
+        }
+
+        CaltopoClient client = CaltopoClient.ClientForRemoteId(idStr);
+        LocationData location = ac.getLocation();
+        if (null != location) {
+            long timestampInTenthsOfASecond = (long)location.getLocationTimestamp();
+            /* timestampInSeconds from UAS is for the current hour based on gps, so accurate
+               w/in the current hour only.  Here's the problem: Rx UAS timestamp of 3599.9
+               (i.e. .1 second before the next hour).  With delays in transmitting/receiving the
+               UAS timestamp, it arrives here after the hour.  So if we blindly add it to the current
+               hour, we're going to occasionally see a big discontinuity in the flow of timestamps.
+               One way to prevent this is to check the arriving timestamp and if it's close to
+               rolling over, then subtract 60 seconds (more than worst-case delay) from our epoch
+               timestamp before calculating the seconds for the hour.
+             */
+            long timestampInMilliseconds;
+            if (timestampInTenthsOfASecond != 0xffff) {
+                Instant currentInstant = Instant.now();
+                // Get the epoch second (seconds since 1970-01-01T00:00:00Z)
+                long epochSecond = currentInstant.getEpochSecond();
+                long epochSecondHr;
+                timestampInMilliseconds = timestampInTenthsOfASecond * 100;
+                if (timestampInMilliseconds >= (60 * 60 * 1000)) {
+                    CaltopoClient.CTError(TAG, String.format(Locale.US, "Received invalid TimestampInTenthsOfASecond:%d", timestampInTenthsOfASecond));
+                    timestampInMilliseconds = timestampInMilliseconds % (60 * 60 * 100);
+                }
+                if (timestampInMilliseconds > (59*60*1000)) {
+                    epochSecondHr = ((epochSecond - 60) / (60 * 60)) * (60 * 60);
+                } else {
+                    epochSecondHr = (epochSecond / (60 * 60)) * (60 * 60);
+                }
+                // Log.d(TAG, String.format(Locale.US, "TimestampIn:%f, epochSeconds:%d, epochSecondsHr:%d, timestampOut:%f",
+                //        timestampInSeconds, epochSecond, epochSecondHr, (double)epochSecondHr + timestampInSeconds));
+                timestampInMilliseconds += epochSecondHr * 1000;
+            } else {
+                timestampInMilliseconds = 0; // not yet valid, so just set to zero.
+            }
+            double lat = location.getLatitude();
+            double lng = location.getLongitude();
+            long altitudeInMeters = (long)location.getAltitudeGeodetic();
+            /*
+            Log.i(TAG, String.format(Locale.US,
+                    "Processing new waypoint from %s on transport:%s, " +
+                            "TimestampIn:%d, Altitude:%d at %.5f,%.5f",
+                    idStr, transportType, timestampInSeconds, altitudeInMeters, lat, lng));
+             */
+            client.newWaypoint(lat, lng, altitudeInMeters, timestampInMilliseconds, transportType);
+        }
+    }
 
     @SuppressWarnings("unchecked")
     void receiveData(long timeNano, String macAddress, long macAddressLong, int rssi,
@@ -82,6 +152,15 @@ public class OpenDroneIdDataManager {
 
         // Handle connection
         boolean newAircraft = false;
+
+        /* FIXME: This assumes that macAddressLong doesn't change.
+         *  Unfortunately, the remote mac address for wireless NaN messages changes.  The spec for the interface
+         *  says not to rely on it for a unique handle to the remote.   So, we really need to parse the message in
+         *  a common data buffer, then use that information to look up the Remote ID (Serial Number) and use that
+         *  as the unique handle to reference an aircraft.  Note that some aircraft remote modules broadcast both
+         *  Wireless and Bluetooth, so ideally should keep track of transport information for each within a single
+         *  aircraft instance.
+         */
         AircraftObject ac = aircraft.get(macAddressLong);
         if (ac == null) {
             ac = createNewAircraft(macAddress, macAddressLong);
@@ -106,6 +185,7 @@ public class OpenDroneIdDataManager {
         else
             handleMessages(ac, message);
 
+        updateCaltopo(ac, transportType);
         // Restore the msgVersion in case the messages embedded in the pack had a different value
         logMessageEntry.setMsgVersion(ac.getConnection().getMsgVersion());
     }
@@ -175,7 +255,7 @@ public class OpenDroneIdDataManager {
             if (type2 == Identification.IdTypeEnum.None || type2 == data.getIdType()) {
                 ac.identification2.setValue(data);
             } else {
-                Log.i(TAG, "Discarded Basic ID message of type: " + data.getIdType().toString() +
+                CaltopoClient.CTInfo(TAG, "Discarded Basic ID message of type: " + data.getIdType().toString() +
                         ". Already have " + type1.toString() + " and " + type2.toString());
             }
         }

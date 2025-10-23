@@ -8,16 +8,18 @@ apply plugin: 'com.android.application'
 android {
     def versionMajor = 3
     def versionMinor = 6
-    def versionPatch = 0
-    compileSdk 36
+    def versionPatch = 1
+    compileSdkVersion 35
 
     defaultConfig {
         applicationId "org.opendroneid.android"
-        minSdkVersion 21
+        minSdkVersion 29
         targetSdkVersion 35
         versionCode versionMajor * 10000 + versionMinor * 100 + versionPatch
         versionName "${versionMajor}.${versionMinor}.${versionPatch}"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        def buildTime = new Date()
+        buildConfigField "String", "BUILD_TIME", "\"${buildTime.format('ddLLLyyyy:HHmmss')}\""
     }
     buildTypes {
         debug {
@@ -29,6 +31,12 @@ android {
             } else {
                 buildConfigField "boolean", "USE_GOOGLE_MAPS", "false"
             }
+
+            if (project.hasProperty('storePassword')) {
+                buildConfigField("String", "STORE_PASSWORD", storePassword)
+                buildConfigField("String", "STORE_FILE", storeFile)
+            }
+            signingConfig signingConfigs.debug
         }
 
         release {
@@ -44,8 +52,8 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = 1.8
-        targetCompatibility = 1.8
+        sourceCompatibility = 17
+        targetCompatibility = 17
     }
     namespace 'org.opendroneid.android'
 }
@@ -63,7 +71,13 @@ dependencies {
     implementation 'com.android.support:support-fragment:' + support_version
     implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
     implementation 'androidx.lifecycle:lifecycle-extensions:2.2.0'
+    implementation 'androidx.core:core:1.12.0'
     implementation 'pub.devrel:easypermissions:3.0.0'
+    implementation 'com.squareup.okhttp3:okhttp:5.2.1'
+    implementation 'com.squareup.okhttp3:mockwebserver:5.2.1'
+    implementation 'com.squareup.okhttp3:okhttp-tls:5.2.1'
+    implementation 'org.bouncycastle:bcprov-jdk15on:1.70'
+    implementation 'org.bouncycastle:bcpkix-jdk15on:1.70'
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'

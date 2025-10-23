@@ -7,7 +7,6 @@
 package org.opendroneid.android.bluetooth;
 
 import android.Manifest;
-import android.annotation.TargetApi;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.le.BluetoothLeScanner;
@@ -20,10 +19,10 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.ParcelUuid;
-import android.util.Log;
 
 import androidx.core.app.ActivityCompat;
 
+import org.opendroneid.android.data.CaltopoClient;
 import org.opendroneid.android.log.LogEntry;
 import org.opendroneid.android.log.LogMessageEntry;
 import org.opendroneid.android.log.LogWriter;
@@ -34,7 +33,7 @@ import java.util.Locale;
 import java.util.UUID;
 
 public class BluetoothScanner {
-    private static final String TAG = "BluetoothManager";
+    private static final String TAG = "BluetoothScanner";
 
     private final OpenDroneIdDataManager dataManager;
     private LogWriter logger;
@@ -45,11 +44,13 @@ public class BluetoothScanner {
     public BluetoothScanner(Context context, OpenDroneIdDataManager dataManager) {
         this.context = context;
         this.dataManager = dataManager;
+        bluetoothAdapter = getBluetoothAdapter(context);
+    }
 
+    public static BluetoothAdapter getBluetoothAdapter(Context context) {
         Object object = context.getSystemService(Context.BLUETOOTH_SERVICE);
-        if (object == null)
-            return;
-        bluetoothAdapter = ((android.bluetooth.BluetoothManager) object).getAdapter();
+        if (object == null) return null;
+        return ((android.bluetooth.BluetoothManager) object).getAdapter();
     }
 
     public void setLogger(LogWriter logger) {
@@ -58,10 +59,6 @@ public class BluetoothScanner {
 
     private static String dumpBytes(byte[] bytes) {
         return LogEntry.toHexString(bytes, bytes.length);
-    }
-
-    public BluetoothAdapter getBluetoothAdapter() {
-        return bluetoothAdapter;
     }
 
     private final ScanCallback scanCallback = new ScanCallback() {
@@ -80,7 +77,7 @@ public class BluetoothScanner {
                     addr, advertiseFlags, rssi, bytes != null ? bytes.length : -1);
 
             String transportType = "BT4";
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bluetoothAdapter.isLeCodedPhySupported()) {
+            if (bluetoothAdapter.isLeCodedPhySupported()) {
                 if (result.getPrimaryPhy() == BluetoothDevice.PHY_LE_CODED)
                     transportType = "BT5";
             }
@@ -91,21 +88,22 @@ public class BluetoothScanner {
             StringBuilder csvLog = logMessageEntry.getMessageLogEntry();
             if (logger != null)
                 logger.logBluetooth(logMessageEntry.getMsgVersion(), result, transportType, csvLog);
-
-            Log.w(TAG, "onScanResult: " + string);
+/*
+            CaltopoClient.CTInfo(TAG, "onScanResult: " + string);
             if (bytes != null) {
-                Log.w(TAG, "-- bytes: " + dumpBytes(bytes));
+                CaltopoClient.CTInfo(TAG, "-- bytes: " + dumpBytes(bytes));
             }
+*/
         }
 
         @Override
         public void onBatchScanResults(List<ScanResult> results) {
-            Log.d(TAG, "onBatchScanResults: " + results);
+            CaltopoClient.CTInfo(TAG, "onBatchScanResults: " + results);
         }
 
         @Override
         public void onScanFailed(int errorCode) {
-            Log.e(TAG, "onScanFailed: errorCode is " + errorCode);
+            CaltopoClient.CTError(TAG, "onScanFailed: errorCode is " + errorCode);
         }
     };
 
@@ -120,12 +118,12 @@ public class BluetoothScanner {
     private static final ParcelUuid SERVICE_pUUID = new ParcelUuid(SERVICE_UUID);
     private static final byte[] OPEN_DRONE_ID_AD_CODE = new byte[]{(byte) 0x0D};
 
-    @TargetApi(Build.VERSION_CODES.O)
     public void startScan() {
-        if (bluetoothAdapter == null)
+        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
+            CaltopoClient.CTError(TAG, "Bluetooth scan not supported.");
             return;
-
-        Log.d(TAG, ">>>> startScan");
+        }
+        CaltopoClient.CTDebug(TAG, "Basic Bluetooth scan supported.");
         bluetoothLeScanner = bluetoothAdapter.getBluetoothLeScanner();
 
         ScanFilter.Builder builder = new ScanFilter.Builder();
@@ -136,10 +134,9 @@ public class BluetoothScanner {
         ScanSettings scanSettings = new ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                bluetoothAdapter.isLeCodedPhySupported() &&
+        if (bluetoothAdapter.isLeCodedPhySupported() &&
                 bluetoothAdapter.isLeExtendedAdvertisingSupported()) {
-            Log.d(TAG, "startScan: Enable scanning also for devices advertising on an LE Coded PHY S2 or S8");
+            CaltopoClient.CTDebug(TAG, "startScan: Enable scanning also for devices advertising on an LE Coded PHY S2 or S8");
             scanSettings = new ScanSettings.Builder()
                     .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                     .setLegacy(false)
@@ -147,17 +144,15 @@ public class BluetoothScanner {
                     .build();
         }
 
-        if (bluetoothLeScanner != null && bluetoothAdapter.isEnabled()) {
+        if (bluetoothLeScanner != null) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                    Log.e(TAG, "startScan: Did not get BLUETOOTH_SCAN permission");
+                    CaltopoClient.CTError(TAG, "startScan: Did not get BLUETOOTH_SCAN permission");
                     return;
                 }
             }
-            Log.d(TAG, "startScan: Calling bluetoothLeScanner.startScan");
+            CaltopoClient.CTDebug(TAG, "startScan: Calling bluetoothLeScanner.startScan");
             bluetoothLeScanner.startScan(scanFilters, scanSettings, scanCallback);
-        } else {
-            Log.e(TAG, "startScan: Bluetooth not available");
         }
     }
 
@@ -165,13 +160,12 @@ public class BluetoothScanner {
         if (bluetoothLeScanner != null && bluetoothAdapter.isEnabled()) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                    Log.e(TAG, "stopScan: Did not get BLUETOOTH_SCAN permission");
+                    CaltopoClient.CTError(TAG, "stopScan: Did not get BLUETOOTH_SCAN permission");
                     return;
                 }
             }
+            CaltopoClient.CTDebug(TAG, "Calling bluetoothLeScanner.stopScan().");
             bluetoothLeScanner.stopScan(scanCallback);
-        } else {
-            Log.d(TAG, "stopScan: Bluetooth not available");
         }
     }
 }
